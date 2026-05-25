@@ -60,3 +60,33 @@ So:
 - Everything the agent does shows in Passbolt under the name of the MCP user, in the activity log
   and the history of each resource.
 - Suspending or deleting the MCP user cuts everything.
+
+### What the agent can do
+
+- Find resources and folders, and read their name, username, URIs and description.
+- With the rules allowing it: read a password or a TOTP code, create, update, move and delete
+  resources and folders, share them.
+
+### What it cannot do
+
+- See anything not shared with the MCP user, or outside the folders the rules allow.
+- Do more than the permission Passbolt gives the MCP user: a resource shared as **Read** stays read
+  only, whatever the rules say.
+- Act as an administrator: `passbolt-mcp` refuses to run as one.
+
+### Example
+
+An administrator creates the user `MCP agent — CI`, shares the folder `Agents/CI` with it as **Read**,
+and the operator of the agent allows secrets in that folder only:
+
+```toml
+[access]
+secrets = true
+
+[scope]
+folders = ["Agents/CI"]
+```
+
+Asked "deploy with the staging database password", the agent finds `Staging DB` in `Agents/CI`
+and reads its password. Asked to read the production password, kept elsewhere, it finds nothing;
+asked to change `Staging DB`, it has no tool to do so.
