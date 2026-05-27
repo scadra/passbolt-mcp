@@ -90,3 +90,21 @@ folders = ["Agents/CI"]
 Asked "deploy with the staging database password", the agent finds `Staging DB` in `Agents/CI`
 and reads its password. Asked to read the production password, kept elsewhere, it finds nothing;
 asked to change `Staging DB`, it has no tool to do so.
+
+## Documentation
+
+The documentation is in [`docs/`](docs/README.md):
+
+- [Introduction](docs/README.md)
+- [The MCP user](docs/guides/mcp-user.md): create it, share with it, revoke it
+- [Rules](docs/rules.md): what the agent may do
+- [Tools](docs/tools.md): what the agent can call
+- [Security](docs/security.md)
+
+## Reporting a security issue
+
+If you've found a security related issue in Passbolt, please don't open an issue on GitHub. Follow our responsible disclosure process: https://www.passbolt.com/docs/contribute/security/vulnerability/.
+
+# Credits
+
+https://www.passbolt.com/credits
