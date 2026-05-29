@@ -8,6 +8,7 @@ license = "AGPL-3.0-or-later"
 repository = "https://github.com/scadra/passbolt-mcp"
 
 [dependencies]
+passbolt-sdk = { package = "switch-case-passbolt-sdk", version = "0.1.2", features = ["native", "totp"] }
 
 [lints.rust]
 unsafe_code = "deny"
