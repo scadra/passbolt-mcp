@@ -11,6 +11,8 @@ repository = "https://github.com/scadra/passbolt-mcp"
 passbolt-sdk = { package = "switch-case-passbolt-sdk", version = "0.1.2", features = ["native", "totp"] }
 rmcp = { version = "3.9", features = ["server", "transport-io"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [lints.rust]
 unsafe_code = "deny"

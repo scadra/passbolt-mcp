@@ -10,4 +10,19 @@
 // @link          https://www.passbolt.com Passbolt(tm)
 // @since         0.1.0
 
-fn main() {}
+use tracing_subscriber::EnvFilter;
+
+/// Logs go to stderr: in stdio, stdout carries the MCP messages.
+fn init_logs() {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::try_from_env("PASSBOLT_MCP_LOG").unwrap_or_else(|_| EnvFilter::new("warn")),
+        )
+        .with_writer(std::io::stderr)
+        .init();
+}
+
+#[tokio::main]
+async fn main() {
+    init_logs();
+}
