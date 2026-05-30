@@ -8,6 +8,7 @@ license = "AGPL-3.0-or-later"
 repository = "https://github.com/scadra/passbolt-mcp"
 
 [dependencies]
+clap = { version = "4", features = ["derive", "env"] }
 passbolt-sdk = { package = "switch-case-passbolt-sdk", version = "0.1.2", features = ["native", "totp"] }
 rmcp = { version = "3.9", features = ["server", "transport-io"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
