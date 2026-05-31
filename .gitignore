@@ -1,0 +1,24 @@
+# Rust build #
+######################
+/target
+*.rs.bk
+
+# Secrets (never commit) #
+######################
+.env
+*.asc
+*.gpg
+*.pem
+*.key
+passbolt-mcp.toml
+audit.jsonl
+
+# OS & editors #
+######################
+.DS_Store
+Thumbs.db
+.idea
+.vscode
+*.swp
+*.swo
+*~

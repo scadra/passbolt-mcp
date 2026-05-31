@@ -1,0 +1,32 @@
+[package]
+name = "passbolt-mcp"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+description = "Passbolt MCP server — an AI agent works with Passbolt through a user of its own"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/scadra/passbolt-mcp"
+
+[dependencies]
+clap = { version = "4", features = ["derive", "env"] }
+passbolt-sdk = { package = "switch-case-passbolt-sdk", version = "0.1.2", features = ["native", "totp"] }
+rmcp = { version = "3.9", features = ["server", "transport-io"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+
+[profile.release]
+strip = true
+opt-level = 3
+lto = true
+codegen-units = 1
