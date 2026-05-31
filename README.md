@@ -100,6 +100,7 @@ The documentation is in [`docs/`](docs/README.md):
 - [Rules](docs/rules.md): what the agent may do
 - [Tools](docs/tools.md): what the agent can call
 - [Security](docs/security.md)
+- [Development](docs/contributing/development.md)
 
 ## Reporting a security issue
 
