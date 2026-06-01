@@ -60,7 +60,26 @@ impl Config {
     pub fn load(path: &Path) -> Result<Self> {
         let text = std::fs::read_to_string(path)
             .with_context(|| format!("cannot read {}", path.display()))?;
-        Self::parse(&text).with_context(|| format!("invalid {}", path.display()))
+        let config = Self::parse(&text).with_context(|| format!("invalid {}", path.display()))?;
+        Ok(config.relative_to(path.parent().unwrap_or_else(|| Path::new(""))))
+    }
+
+    /// Relative paths are relative to the directory of the file.
+    fn relative_to(mut self, dir: &Path) -> Self {
+        let passbolt = &mut self.passbolt;
+        for path in [
+            Some(&mut passbolt.private_key_file),
+            passbolt.passphrase_file.as_mut(),
+            passbolt.totp_secret_file.as_mut(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if path.is_relative() && !path.as_os_str().is_empty() {
+                *path = dir.join(&*path);
+            }
+        }
+        self
     }
 }
 
@@ -86,6 +105,24 @@ mod tests {
             ["pass", "show", "agent"]
         );
         assert!(config.passbolt.passphrase_file.is_none());
+    }
+
+    #[test]
+    fn relative_paths() {
+        let config = Config::parse(
+            "[passbolt]\nprivate_key_file = \"agent.asc\"\npassphrase_file = \"/run/secret\"",
+        )
+        .unwrap()
+        .relative_to(Path::new("/etc/passbolt-mcp"));
+        assert_eq!(
+            config.passbolt.private_key_file,
+            Path::new("/etc/passbolt-mcp/agent.asc")
+        );
+        assert_eq!(
+            config.passbolt.passphrase_file.unwrap(),
+            Path::new("/run/secret")
+        );
+        assert!(config.passbolt.totp_secret_file.is_none());
     }
 
     #[test]
