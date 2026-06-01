@@ -10,13 +10,20 @@
 // @link          https://www.passbolt.com Passbolt(tm)
 // @since         0.1.0
 
+use std::path::PathBuf;
+
 use clap::Parser;
+use passbolt_mcp::config::Config;
 use tracing_subscriber::EnvFilter;
 
 /// An MCP server for Passbolt: an AI agent works with Passbolt through a user of its own.
 #[derive(Parser)]
 #[command(name = "passbolt-mcp", version, about)]
-struct Cli {}
+struct Cli {
+    /// The configuration file [default: passbolt-mcp.toml in the configuration directory]
+    #[arg(long, env = "PASSBOLT_MCP_CONFIG", global = true)]
+    config: Option<PathBuf>,
+}
 
 /// Logs go to stderr: in stdio, stdout carries the MCP messages.
 fn init_logs() {
@@ -29,7 +36,9 @@ fn init_logs() {
 }
 
 #[tokio::main]
-async fn main() {
-    let _cli = Cli::parse();
+async fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
     init_logs();
+    let _config = Config::find(cli.config.as_deref())?;
+    Ok(())
 }

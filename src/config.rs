@@ -34,7 +34,25 @@ pub struct PassboltConfig {
     pub totp_secret_file: Option<PathBuf>,
 }
 
+/// `passbolt-mcp.toml` in the configuration directory of the system.
+#[must_use]
+pub fn default_path() -> Option<PathBuf> {
+    directories::ProjectDirs::from("", "", "passbolt-mcp")
+        .map(|dirs| dirs.config_dir().join("passbolt-mcp.toml"))
+}
+
 impl Config {
+    /// `path` when given (`--config`, `PASSBOLT_MCP_CONFIG`), else the default file if any.
+    pub fn find(path: Option<&Path>) -> Result<Self> {
+        if let Some(path) = path {
+            return Self::load(path);
+        }
+        match default_path() {
+            Some(path) if path.exists() => Self::load(&path),
+            _ => Ok(Self::default()),
+        }
+    }
+
     pub fn parse(text: &str) -> Result<Self> {
         Ok(toml::from_str(text)?)
     }

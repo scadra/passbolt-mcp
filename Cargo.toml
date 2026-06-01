@@ -10,6 +10,7 @@ repository = "https://github.com/scadra/passbolt-mcp"
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }
+directories = "5"
 passbolt-sdk = { package = "switch-case-passbolt-sdk", version = "0.1.2", features = ["native", "totp"] }
 rmcp = { version = "3.9", features = ["server", "transport-io"] }
 serde = { version = "1", features = ["derive"] }

@@ -36,3 +36,15 @@ fn help() {
     assert!(ok);
     assert!(stdout.contains("Usage: passbolt-mcp"));
 }
+
+#[test]
+fn missing_config() {
+    let out = Command::new(env!("CARGO_BIN_EXE_passbolt-mcp"))
+        .args(["--config", "/nonexistent/passbolt-mcp.toml"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert!(String::from_utf8(out.stderr)
+        .unwrap()
+        .contains("cannot read /nonexistent/passbolt-mcp.toml"));
+}
