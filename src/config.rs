@@ -27,7 +27,7 @@ pub struct Config {
 }
 
 /// `[passbolt]`: the MCP user and its server.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct PassboltConfig {
     pub server_url: String,

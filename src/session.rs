@@ -1,0 +1,108 @@
+// Passbolt ~ Open source password manager for teams
+// Copyright (c) Passbolt SA (https://www.passbolt.com)
+//
+// Licensed under GNU Affero General Public License version 3 of the or any later version.
+// For full copyright and license information, please see the LICENSE
+// Redistributions of files must retain the above copyright notice.
+//
+// @copyright     Copyright (c) Passbolt SA (https://www.passbolt.com)
+// @license       https://opensource.org/licenses/AGPL-3.0 AGPL License
+// @link          https://www.passbolt.com Passbolt(tm)
+// @since         0.1.0
+
+//! The session of the MCP user.
+
+use std::sync::Arc;
+
+use anyhow::{Context, Result};
+use passbolt_sdk::types::User;
+use passbolt_sdk::{NativeHttpClient, OpenPgp, PassboltSdk, SdkConfig};
+use secrecy::SecretString;
+use tokio::sync::RwLock;
+use zeroize::Zeroizing;
+
+use crate::config::{Config, PassboltConfig};
+use crate::{passphrase, server_key};
+
+pub type Client = PassboltSdk<NativeHttpClient>;
+
+/// What a login needs.
+struct Credentials {
+    config: PassboltConfig,
+    private_key: Zeroizing<String>,
+    passphrase: SecretString,
+    server_key: String,
+}
+
+pub struct Session {
+    client: RwLock<Arc<Client>>,
+}
+
+impl Session {
+    /// Log in as the MCP user.
+    pub async fn open(config: &Config) -> Result<Self> {
+        let path = &config.passbolt.private_key_file;
+        let credentials = Credentials {
+            config: config.passbolt.clone(),
+            private_key: Zeroizing::new(
+                std::fs::read_to_string(path)
+                    .with_context(|| format!("cannot read the private key {}", path.display()))?,
+            ),
+            passphrase: passphrase::read(&config.passbolt)?,
+            server_key: server_key::read(config)?,
+        };
+        let client = login(&credentials).await?;
+        Ok(Self {
+            client: RwLock::new(Arc::new(client)),
+        })
+    }
+
+    pub async fn client(&self) -> Arc<Client> {
+        self.client.read().await.clone()
+    }
+
+    /// The MCP user, with its role.
+    pub async fn me(&self) -> Result<User> {
+        Ok(self.client().await.get_me().await?)
+    }
+}
+
+/// `First Last <username>`.
+#[must_use]
+pub fn display_name(user: &User) -> String {
+    let profile = user.profile.as_ref();
+    let name = [
+        profile.and_then(|profile| profile.first_name.as_deref()),
+        profile.and_then(|profile| profile.last_name.as_deref()),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(" ");
+    format!("{name} <{}>", user.username.as_deref().unwrap_or_default())
+}
+
+async fn login(credentials: &Credentials) -> Result<Client> {
+    let sdk_config = SdkConfig {
+        server_url: credentials.config.server_url.clone(),
+        private_key_armored: credentials.private_key.to_string(),
+        passphrase: credentials.passphrase.clone(),
+        mfa_mode: "none".into(),
+        mfa_totp_token: String::new(),
+        mfa_totp_offset: 0,
+        mfa_retrys: 3,
+        tls_skip_verify: credentials.config.tls_skip_verify,
+        tls_client_cert: String::new(),
+        tls_client_private_key: String::new(),
+        proxy: String::new(),
+        server_public_key: credentials.server_key.clone(),
+        metadata_key_fingerprint: String::new(),
+        server_verify_enc_token: String::new(),
+        server_verify_token: String::new(),
+        openpgp: OpenPgp::default(),
+    };
+    let http = server_key::http_client(&credentials.config)?;
+    PassboltSdk::login(http, &sdk_config, None, 3)
+        .await
+        .context("cannot log in as the MCP user")
+}

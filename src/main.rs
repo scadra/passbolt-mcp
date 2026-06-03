@@ -15,6 +15,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 use passbolt_mcp::config::Config;
 use passbolt_mcp::server_key::{self, Pinned};
+use passbolt_mcp::session::{self, Session};
 use tracing_subscriber::EnvFilter;
 
 /// An MCP server for Passbolt: an AI agent works with Passbolt through a user of its own.
@@ -33,6 +34,8 @@ struct Cli {
 enum Command {
     /// Pin the server key: run it once, before the first login
     Verify,
+    /// Log in as the MCP user and tell who it is
+    Check,
 }
 
 /// Logs go to stderr: in stdio, stdout carries the MCP messages.
@@ -55,6 +58,10 @@ async fn main() -> anyhow::Result<()> {
             Pinned::New(fingerprint) => println!("Pinned the server key {fingerprint}"),
             Pinned::Same(fingerprint) => println!("The server key {fingerprint} is pinned"),
         },
+        Some(Command::Check) => {
+            let me = Session::open(&config).await?.me().await?;
+            println!("Logged in as {}", session::display_name(&me));
+        }
         None => {}
     }
     Ok(())
