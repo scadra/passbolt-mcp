@@ -37,6 +37,10 @@ pub struct PassboltConfig {
     pub totp_secret_file: Option<PathBuf>,
     /// The server key pinned by `passbolt-mcp verify` [default: server-key.asc next to the file]
     pub server_key_file: Option<PathBuf>,
+    /// Accept any certificate: for a test server only.
+    pub tls_skip_verify: bool,
+    /// `host:port:address`, like `curl --resolve`.
+    pub resolve: Vec<String>,
 }
 
 /// `passbolt-mcp.toml` in the configuration directory of the system.

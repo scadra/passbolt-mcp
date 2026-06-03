@@ -13,24 +13,47 @@
 //! The server key, pinned on first use by `passbolt-mcp verify`: at each login, the server must
 //! prove it holds the private key, so a server pretending to be yours gets nothing.
 
+use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use passbolt_sdk::auth::fetch_server_key;
 use passbolt_sdk::{NativeHttpClient, NativeHttpConfig, OpenPgp};
 
-use crate::config::Config;
+use crate::config::{Config, PassboltConfig};
 
 /// The HTTP client of every call to the server.
-pub fn http_client() -> Result<NativeHttpClient> {
+pub fn http_client(config: &PassboltConfig) -> Result<NativeHttpClient> {
+    if config.tls_skip_verify {
+        tracing::warn!("tls_skip_verify: the certificate of the server is not checked");
+    }
     Ok(NativeHttpClient::new(&NativeHttpConfig {
-        tls_skip_verify: false,
+        tls_skip_verify: config.tls_skip_verify,
         client_cert_pem: None,
         client_key_pem: None,
         proxy_url: None,
-        resolve: Vec::new(),
+        resolve: config
+            .resolve
+            .iter()
+            .map(|entry| parse_resolve(entry))
+            .collect::<Result<_>>()?,
         timeout: Some(Duration::from_secs(60)),
     })?)
+}
+
+fn parse_resolve(entry: &str) -> Result<(String, SocketAddr)> {
+    let mut parts = entry.splitn(3, ':');
+    let (Some(host), Some(port), Some(address)) = (parts.next(), parts.next(), parts.next()) else {
+        bail!("resolve: {entry} is not host:port:address");
+    };
+    let address = address.trim_start_matches('[').trim_end_matches(']');
+    let address: IpAddr = address
+        .parse()
+        .with_context(|| format!("resolve: {address} is not an IP address"))?;
+    let port = port
+        .parse()
+        .with_context(|| format!("resolve: {port} is not a port"))?;
+    Ok((host.to_string(), SocketAddr::new(address, port)))
 }
 
 /// What `verify` found.
@@ -50,7 +73,8 @@ pub async fn verify(config: &Config) -> Result<Pinned> {
         bail!("no server: set server_url in [passbolt]");
     }
     let openpgp = OpenPgp::default();
-    let (fingerprint, armored_key) = fetch_server_key(&http_client()?, base_url, &openpgp).await?;
+    let (fingerprint, armored_key) =
+        fetch_server_key(&http_client(&config.passbolt)?, base_url, &openpgp).await?;
     let path = config.server_key_path();
     let pinned = match std::fs::read_to_string(&path) {
         Ok(pinned) => Some(openpgp.public_key_fingerprint(&pinned)?),
@@ -113,6 +137,19 @@ mod tests {
     #[test]
     fn changed_key() {
         assert!(compare(Some("AB12".into()), "CD34".into()).is_err());
+    }
+
+    #[test]
+    fn resolve() {
+        assert_eq!(
+            parse_resolve("passbolt.local:443:172.17.0.1").unwrap(),
+            ("passbolt.local".into(), "172.17.0.1:443".parse().unwrap())
+        );
+        assert_eq!(
+            parse_resolve("passbolt.local:8443:[::1]").unwrap().1,
+            "[::1]:8443".parse().unwrap()
+        );
+        assert!(parse_resolve("passbolt.local:443").is_err());
     }
 
     #[test]
