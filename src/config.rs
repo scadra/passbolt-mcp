@@ -21,6 +21,9 @@ use serde::Deserialize;
 #[serde(default)]
 pub struct Config {
     pub passbolt: PassboltConfig,
+    /// The directory of the file, or the default one: where the server key is pinned.
+    #[serde(skip)]
+    pub dir: PathBuf,
 }
 
 /// `[passbolt]`: the MCP user and its server.
@@ -32,6 +35,8 @@ pub struct PassboltConfig {
     pub passphrase_file: Option<PathBuf>,
     pub passphrase_command: Option<Vec<String>>,
     pub totp_secret_file: Option<PathBuf>,
+    /// The server key pinned by `passbolt-mcp verify` [default: server-key.asc next to the file]
+    pub server_key_file: Option<PathBuf>,
 }
 
 /// `passbolt-mcp.toml` in the configuration directory of the system.
@@ -49,8 +54,20 @@ impl Config {
         }
         match default_path() {
             Some(path) if path.exists() => Self::load(&path),
-            _ => Ok(Self::default()),
+            Some(path) => Ok(Self {
+                dir: path.parent().map(Path::to_path_buf).unwrap_or_default(),
+                ..Self::default()
+            }),
+            None => Ok(Self::default()),
         }
+    }
+
+    #[must_use]
+    pub fn server_key_path(&self) -> PathBuf {
+        self.passbolt
+            .server_key_file
+            .clone()
+            .unwrap_or_else(|| self.dir.join("server-key.asc"))
     }
 
     pub fn parse(text: &str) -> Result<Self> {
@@ -66,11 +83,13 @@ impl Config {
 
     /// Relative paths are relative to the directory of the file.
     fn relative_to(mut self, dir: &Path) -> Self {
+        self.dir = dir.to_path_buf();
         let passbolt = &mut self.passbolt;
         for path in [
             Some(&mut passbolt.private_key_file),
             passbolt.passphrase_file.as_mut(),
             passbolt.totp_secret_file.as_mut(),
+            passbolt.server_key_file.as_mut(),
         ]
         .into_iter()
         .flatten()
@@ -119,10 +138,14 @@ mod tests {
             Path::new("/etc/passbolt-mcp/agent.asc")
         );
         assert_eq!(
-            config.passbolt.passphrase_file.unwrap(),
+            config.passbolt.passphrase_file.as_deref().unwrap(),
             Path::new("/run/secret")
         );
         assert!(config.passbolt.totp_secret_file.is_none());
+        assert_eq!(
+            config.server_key_path(),
+            Path::new("/etc/passbolt-mcp/server-key.asc")
+        );
     }
 
     #[test]

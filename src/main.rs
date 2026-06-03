@@ -12,8 +12,9 @@
 
 use std::path::PathBuf;
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use passbolt_mcp::config::Config;
+use passbolt_mcp::server_key::{self, Pinned};
 use tracing_subscriber::EnvFilter;
 
 /// An MCP server for Passbolt: an AI agent works with Passbolt through a user of its own.
@@ -23,6 +24,15 @@ struct Cli {
     /// The configuration file [default: passbolt-mcp.toml in the configuration directory]
     #[arg(long, env = "PASSBOLT_MCP_CONFIG", global = true)]
     config: Option<PathBuf>,
+
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Pin the server key: run it once, before the first login
+    Verify,
 }
 
 /// Logs go to stderr: in stdio, stdout carries the MCP messages.
@@ -39,6 +49,13 @@ fn init_logs() {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     init_logs();
-    let _config = Config::find(cli.config.as_deref())?;
+    let config = Config::find(cli.config.as_deref())?;
+    match cli.command {
+        Some(Command::Verify) => match server_key::verify(&config).await? {
+            Pinned::New(fingerprint) => println!("Pinned the server key {fingerprint}"),
+            Pinned::Same(fingerprint) => println!("The server key {fingerprint} is pinned"),
+        },
+        None => {}
+    }
     Ok(())
 }
