@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use passbolt_sdk::types::User;
 use passbolt_sdk::{NativeHttpClient, OpenPgp, PassboltSdk, SdkConfig};
 use secrecy::SecretString;
@@ -52,9 +52,18 @@ impl Session {
             server_key: server_key::read(config)?,
         };
         let client = login(&credentials).await?;
-        Ok(Self {
+        let session = Self {
             client: RwLock::new(Arc::new(client)),
-        })
+        };
+        let me = session.me().await?;
+        if is_admin(&me) {
+            session.client().await.logout().await;
+            bail!(
+                "{} is an administrator: the MCP user must have the role user",
+                display_name(&me)
+            );
+        }
+        Ok(session)
     }
 
     pub async fn client(&self) -> Arc<Client> {
@@ -65,6 +74,13 @@ impl Session {
     pub async fn me(&self) -> Result<User> {
         Ok(self.client().await.get_me().await?)
     }
+}
+
+fn is_admin(user: &User) -> bool {
+    user.role
+        .as_ref()
+        .and_then(|role| role.name.as_deref())
+        .is_some_and(|name| name.eq_ignore_ascii_case("admin"))
 }
 
 /// `First Last <username>`.
@@ -105,4 +121,33 @@ async fn login(credentials: &Credentials) -> Result<Client> {
     PassboltSdk::login(http, &sdk_config, None, 3)
         .await
         .context("cannot log in as the MCP user")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn user(role: &str) -> User {
+        serde_json::from_value(serde_json::json!({
+            "id": "8bb80df6-b7e6-4d1f-9d55-f0cd5a0e5a3b",
+            "username": "mcp-agent@example.com",
+            "role": { "name": role },
+            "profile": { "first_name": "MCP", "last_name": "agent" }
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn admin() {
+        assert!(is_admin(&user("admin")));
+        assert!(!is_admin(&user("user")));
+    }
+
+    #[test]
+    fn name() {
+        assert_eq!(
+            display_name(&user("user")),
+            "MCP agent <mcp-agent@example.com>"
+        );
+    }
 }
