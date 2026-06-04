@@ -13,11 +13,13 @@
 //! The session of the MCP user.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
+use passbolt_sdk::mfa::TotpProvider;
 use passbolt_sdk::types::User;
-use passbolt_sdk::{NativeHttpClient, OpenPgp, PassboltSdk, SdkConfig};
-use secrecy::SecretString;
+use passbolt_sdk::{MfaProvider, NativeHttpClient, OpenPgp, PassboltSdk, SdkConfig};
+use secrecy::{ExposeSecret, SecretString};
 use tokio::sync::RwLock;
 use zeroize::Zeroizing;
 
@@ -32,6 +34,7 @@ struct Credentials {
     private_key: Zeroizing<String>,
     passphrase: SecretString,
     server_key: String,
+    totp_secret: Option<SecretString>,
 }
 
 pub struct Session {
@@ -50,6 +53,12 @@ impl Session {
             ),
             passphrase: passphrase::read(&config.passbolt)?,
             server_key: server_key::read(config)?,
+            totp_secret: config
+                .passbolt
+                .totp_secret_file
+                .as_deref()
+                .map(passphrase::from_file)
+                .transpose()?,
         };
         let client = login(&credentials).await?;
         let session = Self {
@@ -117,8 +126,20 @@ async fn login(credentials: &Credentials) -> Result<Client> {
         server_verify_token: String::new(),
         openpgp: OpenPgp::default(),
     };
+    // MFA, when enforced for the MCP user: the code of its TOTP secret.
+    let mfa = credentials
+        .totp_secret
+        .as_ref()
+        .map(|secret| -> Result<Box<dyn MfaProvider>> {
+            Ok(Box::new(TotpProvider::new(
+                secret.expose_secret(),
+                0,
+                Duration::from_secs(1),
+            )?))
+        })
+        .transpose()?;
     let http = server_key::http_client(&credentials.config)?;
-    PassboltSdk::login(http, &sdk_config, None, 3)
+    PassboltSdk::login(http, &sdk_config, mfa, 3)
         .await
         .context("cannot log in as the MCP user")
 }
