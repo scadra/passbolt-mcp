@@ -32,6 +32,8 @@ use crate::{passphrase, server_key};
 
 pub type Client = PassboltSdk<NativeHttpClient>;
 
+const KEEP_ALIVE: Duration = Duration::from_secs(5 * 60);
+
 /// What a login needs, kept to log in again.
 struct Credentials {
     config: PassboltConfig,
@@ -89,6 +91,24 @@ impl Session {
     pub async fn me(&self) -> Result<User> {
         self.call(|client| async move { client.get_me().await })
             .await
+    }
+
+    /// Keep the session alive between calls of the agent, as the browser extension does.
+    pub fn keep_alive(self: &Arc<Self>) -> tokio::task::JoinHandle<()> {
+        let session = Arc::clone(self);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(KEEP_ALIVE);
+            interval.tick().await;
+            loop {
+                interval.tick().await;
+                if let Err(error) = session
+                    .call(|client| async move { client.keep_alive().await })
+                    .await
+                {
+                    tracing::warn!("keep alive: {error:#}");
+                }
+            }
+        })
     }
 
     /// Call the API; when the session expired, log in again and call once more.
