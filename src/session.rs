@@ -12,13 +12,17 @@
 
 //! The session of the MCP user.
 
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use passbolt_sdk::mfa::TotpProvider;
 use passbolt_sdk::types::User;
-use passbolt_sdk::{MfaProvider, NativeHttpClient, OpenPgp, PassboltSdk, SdkConfig};
+use passbolt_sdk::{
+    ApiError, AuthError, MfaProvider, NativeHttpClient, OpenPgp, PassboltError, PassboltSdk,
+    SdkConfig,
+};
 use secrecy::{ExposeSecret, SecretString};
 use tokio::sync::RwLock;
 use zeroize::Zeroizing;
@@ -28,7 +32,7 @@ use crate::{passphrase, server_key};
 
 pub type Client = PassboltSdk<NativeHttpClient>;
 
-/// What a login needs.
+/// What a login needs, kept to log in again.
 struct Credentials {
     config: PassboltConfig,
     private_key: Zeroizing<String>,
@@ -38,6 +42,7 @@ struct Credentials {
 }
 
 pub struct Session {
+    credentials: Credentials,
     client: RwLock<Arc<Client>>,
 }
 
@@ -62,6 +67,7 @@ impl Session {
         };
         let client = login(&credentials).await?;
         let session = Self {
+            credentials,
             client: RwLock::new(Arc::new(client)),
         };
         let me = session.me().await?;
@@ -81,8 +87,45 @@ impl Session {
 
     /// The MCP user, with its role.
     pub async fn me(&self) -> Result<User> {
-        Ok(self.client().await.get_me().await?)
+        self.call(|client| async move { client.get_me().await })
+            .await
     }
+
+    /// Call the API; when the session expired, log in again and call once more.
+    pub async fn call<T, F, Fut>(&self, call: F) -> Result<T>
+    where
+        T: Send,
+        F: Fn(Arc<Client>) -> Fut + Send + Sync,
+        Fut: Future<Output = Result<T, PassboltError>> + Send,
+    {
+        let client = self.client().await;
+        match call(client.clone()).await {
+            Err(error) if is_expired(&error) => {
+                self.login_again(&client).await?;
+                Ok(call(self.client().await).await?)
+            }
+            result => Ok(result?),
+        }
+    }
+
+    /// Log in again, unless a concurrent call did already: the others wait for this login.
+    async fn login_again(&self, expired: &Arc<Client>) -> Result<()> {
+        let mut client = self.client.write().await;
+        if Arc::ptr_eq(&client, expired) {
+            tracing::info!("the session expired: logging in again");
+            *client = Arc::new(login(&self.credentials).await?);
+        }
+        drop(client);
+        Ok(())
+    }
+}
+
+const fn is_expired(error: &PassboltError) -> bool {
+    matches!(
+        error,
+        PassboltError::Api(ApiError { status: 401, .. })
+            | PassboltError::Auth(AuthError::SessionExpired)
+    )
 }
 
 fn is_admin(user: &User) -> bool {
@@ -162,6 +205,21 @@ mod tests {
     fn admin() {
         assert!(is_admin(&user("admin")));
         assert!(!is_admin(&user("user")));
+    }
+
+    #[test]
+    fn expired() {
+        let api = |status| {
+            PassboltError::Api(ApiError {
+                status,
+                message: String::new(),
+                validation_errors: None,
+            })
+        };
+        assert!(is_expired(&api(401)));
+        assert!(is_expired(&AuthError::SessionExpired.into()));
+        assert!(!is_expired(&api(403)));
+        assert!(!is_expired(&AuthError::MfaRequired.into()));
     }
 
     #[test]
