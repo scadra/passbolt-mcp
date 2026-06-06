@@ -20,5 +20,11 @@ cargo deny check                         # advisories, licenses, sources
 
 The CI runs the same, plus `cargo check --locked` with Rust 1.88.
 
+Against a Passbolt server, with the configuration of an MCP user and after `passbolt-mcp verify`:
+
+```bash
+PASSBOLT_MCP_E2E_CONFIG=passbolt-mcp.toml cargo test --test e2e -- --ignored
+```
+
 Logs go to stderr, filtered by `PASSBOLT_MCP_LOG` (`warn` by default, `debug` to see more): in
 stdio, stdout carries the MCP messages and nothing else.

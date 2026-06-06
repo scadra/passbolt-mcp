@@ -65,6 +65,18 @@ The MCP user sees nothing until something is shared with it.
 
 None of these need the MCP server to restart: the next call of the agent sees the change.
 
+## Verify the server
+
+Once, before the first login, where `passbolt-mcp` runs:
+
+```bash
+passbolt-mcp verify
+```
+
+It pins the key of the server (`server-key.asc` next to the configuration). At each login, the server
+must then prove it holds the private key; a server that cannot, or that sends another key, gets
+nothing.
+
 ## Check it
 
 `passbolt-mcp check` logs in as the MCP user and prints who it is, its role, how many resources and
