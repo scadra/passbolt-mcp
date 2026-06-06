@@ -17,7 +17,7 @@ An agent with access to a password manager is a target. This page lists what can
 | **Exfiltration of secrets** by an agent that reads them and sends them elsewhere | Secrets are off by default (`access.secrets`), and limited to `scope.folders` when on. The audit file records each read. |
 | **The agent does more than asked**: deletes, shares, overwrites | Writing and sharing are off by default; destructive tools say so to the client, which can ask the person to confirm. Passbolt still refuses what the share does not permit. |
 | **A secret leaks through logs** | Secrets never go to logs, errors, the audit file or MCP resources, and are not kept after the call. Logs go to stderr only. |
-| **A rogue server** pretends to be your Passbolt | The identity of the server is pinned on first use, and checked at each login. |
+| **A rogue server** pretends to be your Passbolt | `passbolt-mcp verify` pins the key of the server; at each login, the server must prove it holds the private key. A changed key is refused. |
 | **The MCP user is given too much** | `passbolt-mcp` refuses to run as an administrator; `passbolt-mcp check` reports shares as owner and folders outside the scope. |
 
 ## What it does not protect against

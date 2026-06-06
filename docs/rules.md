@@ -48,6 +48,12 @@ MCP user can see.
 | `passphrase_file` | a file holding its passphrase |
 | `passphrase_command` | a command printing it, for a password manager or a keychain; instead of `passphrase_file` |
 | `totp_secret_file` | the TOTP secret, when MFA is enforced for the MCP user |
+| `server_key_file` | the server key pinned by `passbolt-mcp verify`; `server-key.asc` next to this file by default |
+| `tls_skip_verify` | accept any certificate: for a test server only |
+| `resolve` | `["host:port:address"]`, like `curl --resolve` |
+
+Relative paths are relative to the directory of this file. The first line of `passphrase_file`,
+`totp_secret_file` or of the output of `passphrase_command` is used.
 
 The passphrase is never a command-line argument nor a key of this file: both end up in shell
 histories, process lists and backups.
