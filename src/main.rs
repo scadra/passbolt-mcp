@@ -17,6 +17,7 @@ use clap::{Parser, Subcommand};
 use passbolt_mcp::config::Config;
 use passbolt_mcp::server_key::{self, Pinned};
 use passbolt_mcp::session::{self, Session};
+use passbolt_sdk::{FolderQuery, ResourceQuery};
 use tracing_subscriber::EnvFilter;
 
 /// An MCP server for Passbolt: an AI agent works with Passbolt through a user of its own.
@@ -37,7 +38,7 @@ enum Command {
     Serve,
     /// Pin the server key: run it once, before the first login
     Verify,
-    /// Log in as the MCP user and tell who it is
+    /// Log in as the MCP user and tell who it is and what it sees
     Check,
 }
 
@@ -61,12 +62,33 @@ async fn main() -> anyhow::Result<()> {
             Pinned::New(fingerprint) => println!("Pinned the server key {fingerprint}"),
             Pinned::Same(fingerprint) => println!("The server key {fingerprint} is pinned"),
         },
-        Some(Command::Check) => {
-            let me = Session::open(&config).await?.me().await?;
-            println!("Logged in as {}", session::display_name(&me));
-        }
+        Some(Command::Check) => check(&config).await?,
         None | Some(Command::Serve) => serve(&config).await?,
     }
+    Ok(())
+}
+
+async fn check(config: &Config) -> anyhow::Result<()> {
+    let session = Session::open(config).await?;
+    let me = session.me().await?;
+    let role = me.role.as_ref().and_then(|role| role.name.as_deref());
+    println!(
+        "Logged in as {}, role {}",
+        session::display_name(&me),
+        role.unwrap_or("unknown")
+    );
+    let resources = session
+        .call(|client| async move { client.get_resources(ResourceQuery::default()).await })
+        .await?;
+    let folders = session
+        .call(|client| async move { client.get_folders(FolderQuery::default()).await })
+        .await?;
+    println!(
+        "Sees {} resources and {} folders",
+        resources.len(),
+        folders.len()
+    );
+    session.close().await;
     Ok(())
 }
 
