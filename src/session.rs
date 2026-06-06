@@ -93,6 +93,11 @@ impl Session {
             .await
     }
 
+    /// End the session on the server.
+    pub async fn close(&self) {
+        self.client().await.logout().await;
+    }
+
     /// Keep the session alive between calls of the agent, as the browser extension does.
     pub fn keep_alive(self: &Arc<Self>) -> tokio::task::JoinHandle<()> {
         let session = Arc::clone(self);

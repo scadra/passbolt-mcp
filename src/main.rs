@@ -11,6 +11,7 @@
 // @since         0.1.0
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
 use passbolt_mcp::config::Config;
@@ -32,6 +33,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Log in as the MCP user and serve the agent (the default)
+    Serve,
     /// Pin the server key: run it once, before the first login
     Verify,
     /// Log in as the MCP user and tell who it is
@@ -62,7 +65,37 @@ async fn main() -> anyhow::Result<()> {
             let me = Session::open(&config).await?.me().await?;
             println!("Logged in as {}", session::display_name(&me));
         }
-        None => {}
+        None | Some(Command::Serve) => serve(&config).await?,
     }
     Ok(())
+}
+
+async fn serve(config: &Config) -> anyhow::Result<()> {
+    let session = Arc::new(Session::open(config).await?);
+    tracing::info!(
+        "logged in as {}",
+        session::display_name(&session.me().await?)
+    );
+    let keep_alive = session.keep_alive();
+    shutdown().await;
+    keep_alive.abort();
+    session.close().await;
+    tracing::info!("logged out");
+    Ok(())
+}
+
+/// Ctrl-C, or SIGTERM from a service manager.
+async fn shutdown() {
+    #[cfg(unix)]
+    {
+        let mut terminate =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                .expect("SIGTERM handler");
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = terminate.recv() => {}
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = tokio::signal::ctrl_c().await;
 }
