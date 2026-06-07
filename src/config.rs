@@ -22,6 +22,8 @@ use serde::Deserialize;
 pub struct Config {
     pub passbolt: PassboltConfig,
     pub access: AccessConfig,
+    pub scope: ScopeConfig,
+    pub audit: AuditConfig,
     /// The directory of the file, or the default one: where the server key is pinned.
     #[serde(skip)]
     pub dir: PathBuf,
@@ -62,6 +64,22 @@ pub struct AccessConfig {
     pub allow_tools: Vec<String>,
     /// Never these tools.
     pub deny_tools: Vec<String>,
+}
+
+/// `[scope]`: where the agent may act.
+#[derive(Debug, Default, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ScopeConfig {
+    /// Folders, by path or id, with their subfolders. When not empty, nothing else is visible.
+    pub folders: Vec<String>,
+}
+
+/// `[audit]`: what the agent did.
+#[derive(Debug, Default, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AuditConfig {
+    /// A JSON Lines file, one line per call; none by default.
+    pub file: Option<PathBuf>,
 }
 
 impl Config {
@@ -108,6 +126,7 @@ impl Config {
             passbolt.passphrase_file.as_mut(),
             passbolt.totp_secret_file.as_mut(),
             passbolt.server_key_file.as_mut(),
+            self.audit.file.as_mut(),
         ]
         .into_iter()
         .flatten()
@@ -174,6 +193,19 @@ mod tests {
         assert!(access.secrets);
         assert!(!access.write);
         assert_eq!(access.deny_tools, ["get_secret"]);
+    }
+
+    #[test]
+    fn scope_and_audit() {
+        let config =
+            Config::parse("[scope]\nfolders = [\"Agents/CI\"]\n[audit]\nfile = \"audit.jsonl\"")
+                .unwrap()
+                .relative_to(Path::new("/etc/passbolt-mcp"));
+        assert_eq!(config.scope.folders, ["Agents/CI"]);
+        assert_eq!(
+            config.audit.file.unwrap(),
+            Path::new("/etc/passbolt-mcp/audit.jsonl")
+        );
     }
 
     #[test]
