@@ -21,6 +21,7 @@ use serde::Deserialize;
 #[serde(default)]
 pub struct Config {
     pub passbolt: PassboltConfig,
+    pub access: AccessConfig,
     /// The directory of the file, or the default one: where the server key is pinned.
     #[serde(skip)]
     pub dir: PathBuf,
@@ -48,6 +49,19 @@ pub struct PassboltConfig {
 pub fn default_path() -> Option<PathBuf> {
     directories::ProjectDirs::from("", "", "passbolt-mcp")
         .map(|dirs| dirs.config_dir().join("passbolt-mcp.toml"))
+}
+
+/// `[access]`: what the agent may do. Reading metadata is always allowed; the rest is off.
+#[derive(Debug, Default, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AccessConfig {
+    pub write: bool,
+    pub secrets: bool,
+    pub share: bool,
+    /// When not empty, only these tools.
+    pub allow_tools: Vec<String>,
+    /// Never these tools.
+    pub deny_tools: Vec<String>,
 }
 
 impl Config {
@@ -153,8 +167,21 @@ mod tests {
     }
 
     #[test]
+    fn access() {
+        let access = Config::parse("[access]\nsecrets = true\ndeny_tools = [\"get_secret\"]")
+            .unwrap()
+            .access;
+        assert!(access.secrets);
+        assert!(!access.write);
+        assert_eq!(access.deny_tools, ["get_secret"]);
+    }
+
+    #[test]
     fn empty() {
-        assert_eq!(Config::parse("").unwrap().passbolt.server_url, "");
+        let config = Config::parse("").unwrap();
+        assert_eq!(config.passbolt.server_url, "");
+        assert!(!config.access.write && !config.access.secrets && !config.access.share);
+        assert_eq!(config.access.allow_tools.len(), 0);
     }
 
     #[test]
