@@ -14,5 +14,6 @@
 
 pub mod config;
 pub mod passphrase;
+pub mod rules;
 pub mod server_key;
 pub mod session;
