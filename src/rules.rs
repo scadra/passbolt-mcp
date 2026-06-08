@@ -16,6 +16,7 @@
 use std::fmt;
 
 use crate::config::AccessConfig;
+use crate::scope::Scope;
 
 /// What a tool needs from `[access]`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,6 +37,8 @@ pub enum Refusal {
     Denied(String),
     /// `access.allow_tools` does not list the tool.
     NotAllowed(String),
+    /// Outside `scope.folders`.
+    OutOfScope,
 }
 
 impl fmt::Display for Refusal {
@@ -52,6 +55,7 @@ impl fmt::Display for Refusal {
                 f,
                 "refused by the MCP rules: access.allow_tools does not list {tool}"
             ),
+            Self::OutOfScope => write!(f, "refused by the MCP rules: outside scope.folders"),
         }
     }
 }
@@ -61,12 +65,32 @@ impl std::error::Error for Refusal {}
 #[derive(Debug, Default)]
 pub struct Rules {
     access: AccessConfig,
+    scope: Scope,
 }
 
 impl Rules {
     #[must_use]
-    pub const fn new(access: AccessConfig) -> Self {
-        Self { access }
+    pub const fn new(access: AccessConfig, scope: Scope) -> Self {
+        Self { access, scope }
+    }
+
+    #[must_use]
+    pub const fn access(&self) -> &AccessConfig {
+        &self.access
+    }
+
+    #[must_use]
+    pub const fn scope(&self) -> &Scope {
+        &self.scope
+    }
+
+    /// Whether the agent may act on a resource or folder in `folder_id` (`None`: the root).
+    pub fn reaches(&self, folder_id: Option<&str>) -> Result<(), Refusal> {
+        if self.scope.contains(folder_id) {
+            Ok(())
+        } else {
+            Err(Refusal::OutOfScope)
+        }
     }
 
     /// Whether the agent gets `tool`, which needs `needs`.
@@ -121,11 +145,14 @@ mod tests {
 
     #[test]
     fn allowed() {
-        let rules = Rules::new(AccessConfig {
-            secrets: true,
-            write: true,
-            ..AccessConfig::default()
-        });
+        let rules = Rules::new(
+            AccessConfig {
+                secrets: true,
+                write: true,
+                ..AccessConfig::default()
+            },
+            Scope::default(),
+        );
         assert_eq!(rules.offers("get_secret", Access::Secrets), Ok(()));
         assert_eq!(rules.offers("create_resource", Access::Write), Ok(()));
         assert!(rules.offers("share_resource", Access::Share).is_err());
@@ -133,10 +160,13 @@ mod tests {
 
     #[test]
     fn allow_tools() {
-        let rules = Rules::new(AccessConfig {
-            allow_tools: vec!["list_resources".into(), "get_secret".into()],
-            ..AccessConfig::default()
-        });
+        let rules = Rules::new(
+            AccessConfig {
+                allow_tools: vec!["list_resources".into(), "get_secret".into()],
+                ..AccessConfig::default()
+            },
+            Scope::default(),
+        );
         assert_eq!(rules.offers("list_resources", Access::Read), Ok(()));
         assert_eq!(
             rules.offers("list_folders", Access::Read),
@@ -151,16 +181,33 @@ mod tests {
 
     #[test]
     fn deny_tools() {
-        let rules = Rules::new(AccessConfig {
-            write: true,
-            allow_tools: vec!["delete_resource".into()],
-            deny_tools: vec!["delete_resource".into()],
-            ..AccessConfig::default()
-        });
+        let rules = Rules::new(
+            AccessConfig {
+                write: true,
+                allow_tools: vec!["delete_resource".into()],
+                deny_tools: vec!["delete_resource".into()],
+                ..AccessConfig::default()
+            },
+            Scope::default(),
+        );
         assert_eq!(
             rules.offers("delete_resource", Access::Write),
             Err(Refusal::Denied("delete_resource".into()))
         );
+    }
+
+    #[test]
+    fn scope() {
+        assert_eq!(Rules::default().reaches(None), Ok(()));
+        let folder: passbolt_sdk::types::Folder =
+            serde_json::from_value(serde_json::json!({ "id": "ci", "name": "CI" })).unwrap();
+        let rules = Rules::new(
+            AccessConfig::default(),
+            Scope::resolve(&["CI".into()], &[folder]).unwrap(),
+        );
+        assert_eq!(rules.reaches(Some("ci")), Ok(()));
+        assert_eq!(rules.reaches(Some("ops")), Err(Refusal::OutOfScope));
+        assert_eq!(rules.reaches(None), Err(Refusal::OutOfScope));
     }
 
     #[test]
