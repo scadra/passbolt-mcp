@@ -32,12 +32,26 @@ pub enum Access {
 pub enum Refusal {
     /// `access.<key>` is false.
     Access(&'static str),
+    /// `access.deny_tools` lists the tool.
+    Denied(String),
+    /// `access.allow_tools` does not list the tool.
+    NotAllowed(String),
 }
 
 impl fmt::Display for Refusal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Access(key) => write!(f, "refused by the MCP rules: access.{key} is false"),
+            Self::Denied(tool) => {
+                write!(
+                    f,
+                    "refused by the MCP rules: access.deny_tools lists {tool}"
+                )
+            }
+            Self::NotAllowed(tool) => write!(
+                f,
+                "refused by the MCP rules: access.allow_tools does not list {tool}"
+            ),
         }
     }
 }
@@ -56,7 +70,19 @@ impl Rules {
     }
 
     /// Whether the agent gets `tool`, which needs `needs`.
-    pub const fn offers(&self, _tool: &str, needs: Access) -> Result<(), Refusal> {
+    pub fn offers(&self, tool: &str, needs: Access) -> Result<(), Refusal> {
+        if self.access.deny_tools.iter().any(|denied| denied == tool) {
+            return Err(Refusal::Denied(tool.into()));
+        }
+        if !self.access.allow_tools.is_empty()
+            && !self
+                .access
+                .allow_tools
+                .iter()
+                .any(|allowed| allowed == tool)
+        {
+            return Err(Refusal::NotAllowed(tool.into()));
+        }
         let (allowed, key) = match needs {
             Access::Read => return Ok(()),
             Access::Secrets => (self.access.secrets, "secrets"),
@@ -103,6 +129,38 @@ mod tests {
         assert_eq!(rules.offers("get_secret", Access::Secrets), Ok(()));
         assert_eq!(rules.offers("create_resource", Access::Write), Ok(()));
         assert!(rules.offers("share_resource", Access::Share).is_err());
+    }
+
+    #[test]
+    fn allow_tools() {
+        let rules = Rules::new(AccessConfig {
+            allow_tools: vec!["list_resources".into(), "get_secret".into()],
+            ..AccessConfig::default()
+        });
+        assert_eq!(rules.offers("list_resources", Access::Read), Ok(()));
+        assert_eq!(
+            rules.offers("list_folders", Access::Read),
+            Err(Refusal::NotAllowed("list_folders".into()))
+        );
+        // Listed, but access.secrets is still false.
+        assert_eq!(
+            rules.offers("get_secret", Access::Secrets),
+            Err(Refusal::Access("secrets"))
+        );
+    }
+
+    #[test]
+    fn deny_tools() {
+        let rules = Rules::new(AccessConfig {
+            write: true,
+            allow_tools: vec!["delete_resource".into()],
+            deny_tools: vec!["delete_resource".into()],
+            ..AccessConfig::default()
+        });
+        assert_eq!(
+            rules.offers("delete_resource", Access::Write),
+            Err(Refusal::Denied("delete_resource".into()))
+        );
     }
 
     #[test]
