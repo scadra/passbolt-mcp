@@ -15,8 +15,12 @@
 
 use std::fmt;
 
-use crate::config::AccessConfig;
+use anyhow::Result;
+use passbolt_sdk::FolderQuery;
+
+use crate::config::{AccessConfig, Config};
 use crate::scope::Scope;
+use crate::session::Session;
 
 /// What a tool needs from `[access]`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,6 +76,19 @@ impl Rules {
     #[must_use]
     pub const fn new(access: AccessConfig, scope: Scope) -> Self {
         Self { access, scope }
+    }
+
+    /// The rules of `config`, the scope resolved among the folders the MCP user sees.
+    pub async fn load(config: &Config, session: &Session) -> Result<Self> {
+        let scope = if config.scope.folders.is_empty() {
+            Scope::default()
+        } else {
+            let folders = session
+                .call(|client| async move { client.get_folders(FolderQuery::default()).await })
+                .await?;
+            Scope::resolve(&config.scope.folders, &folders)?
+        };
+        Ok(Self::new(config.access.clone(), scope))
     }
 
     #[must_use]

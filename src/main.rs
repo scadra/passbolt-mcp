@@ -15,6 +15,7 @@ use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
 use passbolt_mcp::config::Config;
+use passbolt_mcp::rules::Rules;
 use passbolt_mcp::server_key::{self, Pinned};
 use passbolt_mcp::session::{self, Session};
 use passbolt_sdk::{FolderQuery, ResourceQuery};
@@ -98,6 +99,13 @@ async fn serve(config: &Config) -> anyhow::Result<()> {
         "logged in as {}",
         session::display_name(&session.me().await?)
     );
+    let _rules = match Rules::load(config, &session).await {
+        Ok(rules) => rules,
+        Err(error) => {
+            session.close().await;
+            return Err(error);
+        }
+    };
     let keep_alive = session.keep_alive();
     shutdown().await;
     keep_alive.abort();
