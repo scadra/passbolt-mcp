@@ -89,8 +89,51 @@ async fn check(config: &Config) -> anyhow::Result<()> {
         resources.len(),
         folders.len()
     );
+    let rules = Rules::load(config, &session).await?;
+    print_rules(&rules, folders.len());
+    let rights = rules.rights(resources.iter().map(|resource| {
+        (
+            resource.folder_parent_id.as_deref(),
+            resource
+                .permission
+                .as_ref()
+                .and_then(|permission| permission.permission_type)
+                .unwrap_or_default(),
+        )
+    }));
+    println!(
+        "The agent can read {} resources, read the secret of {}, change {}, share {}",
+        rights.read, rights.secrets, rights.change, rights.share
+    );
     session.close().await;
     Ok(())
+}
+
+fn print_rules(rules: &Rules, folders: usize) {
+    let access = rules.access();
+    let yes_no = |allowed: bool, what: &str| {
+        if allowed {
+            what.to_string()
+        } else {
+            format!("no {what}")
+        }
+    };
+    println!(
+        "Rules: read, {}, {}, {}",
+        yes_no(access.secrets, "secrets"),
+        yes_no(access.write, "write"),
+        yes_no(access.share, "share")
+    );
+    if !access.allow_tools.is_empty() {
+        println!("Only the tools {}", access.allow_tools.join(", "));
+    }
+    if !access.deny_tools.is_empty() {
+        println!("Never the tools {}", access.deny_tools.join(", "));
+    }
+    match rules.scope().folders() {
+        None => println!("Scope: everything the MCP user sees"),
+        Some(ids) => println!("Scope: {} of the {folders} folders", ids.len()),
+    }
 }
 
 async fn serve(config: &Config) -> anyhow::Result<()> {

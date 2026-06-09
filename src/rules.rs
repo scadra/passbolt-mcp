@@ -66,6 +66,22 @@ impl fmt::Display for Refusal {
 
 impl std::error::Error for Refusal {}
 
+/// Passbolt permission types.
+const UPDATE: i32 = 7;
+const OWNER: i32 = 15;
+
+/// What the agent can do with the resources the MCP user sees: Passbolt and the rules together.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Rights {
+    /// In the scope: names, usernames, URIs, descriptions.
+    pub read: usize,
+    pub secrets: usize,
+    /// Shared with the MCP user as update or owner, with `access.write`.
+    pub change: usize,
+    /// Shared with the MCP user as owner, with `access.share`.
+    pub share: usize,
+}
+
 #[derive(Debug, Default)]
 pub struct Rules {
     access: AccessConfig,
@@ -99,6 +115,25 @@ impl Rules {
     #[must_use]
     pub const fn scope(&self) -> &Scope {
         &self.scope
+    }
+
+    /// The rights of the agent on resources, given by their folder and the permission type of
+    /// the MCP user.
+    pub fn rights<'a>(
+        &self,
+        resources: impl IntoIterator<Item = (Option<&'a str>, i32)>,
+    ) -> Rights {
+        let mut rights = Rights::default();
+        for (folder, permission) in resources {
+            if !self.scope.contains(folder) {
+                continue;
+            }
+            rights.read += 1;
+            rights.secrets += usize::from(self.access.secrets);
+            rights.change += usize::from(self.access.write && permission >= UPDATE);
+            rights.share += usize::from(self.access.share && permission >= OWNER);
+        }
+        rights
     }
 
     /// Whether the agent may act on a resource or folder in `folder_id` (`None`: the root).
@@ -225,6 +260,57 @@ mod tests {
         assert_eq!(rules.reaches(Some("ci")), Ok(()));
         assert_eq!(rules.reaches(Some("ops")), Err(Refusal::OutOfScope));
         assert_eq!(rules.reaches(None), Err(Refusal::OutOfScope));
+    }
+
+    #[test]
+    fn rights() {
+        let resources = [(None, 1), (None, 7), (None, 15), (None, 15)];
+        assert_eq!(
+            Rules::default().rights(resources),
+            Rights {
+                read: 4,
+                ..Rights::default()
+            }
+        );
+        let rules = Rules::new(
+            AccessConfig {
+                secrets: true,
+                write: true,
+                share: true,
+                ..AccessConfig::default()
+            },
+            Scope::default(),
+        );
+        assert_eq!(
+            rules.rights(resources),
+            Rights {
+                read: 4,
+                secrets: 4,
+                change: 3,
+                share: 2
+            }
+        );
+    }
+
+    #[test]
+    fn rights_in_the_scope() {
+        let folder: passbolt_sdk::types::Folder =
+            serde_json::from_value(serde_json::json!({ "id": "ci", "name": "CI" })).unwrap();
+        let rules = Rules::new(
+            AccessConfig {
+                write: true,
+                ..AccessConfig::default()
+            },
+            Scope::resolve(&["CI".into()], &[folder]).unwrap(),
+        );
+        assert_eq!(
+            rules.rights([(Some("ci"), 7), (Some("ops"), 15), (None, 15)]),
+            Rights {
+                read: 1,
+                change: 1,
+                ..Rights::default()
+            }
+        );
     }
 
     #[test]
