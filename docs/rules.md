@@ -80,6 +80,10 @@ tools. The [tools](tools.md) page says which key each tool needs.
 |---|---|---|
 | `folders` | `[]` | folders, by path or id, with their subfolders. When not empty, everything else is invisible to the agent, even if shared with the MCP user. |
 
+A path starts at the highest folder the MCP user sees: `Agents/CI`. When two folders have the same
+path, give the id. Resources at the root, in no folder, are outside any scope. A folder the MCP user
+does not see stops `passbolt-mcp` at start, rather than leaving the agent with less than you meant.
+
 ## `[audit]`: what the agent did
 
 | Key | Default | What |
@@ -99,6 +103,22 @@ refused.
 | Update | `write = true` | change the resource |
 | Owner | `share = true` | share it |
 | anything, outside `scope.folders` | any | nothing: the resource is invisible |
+
+`passbolt-mcp check` prints them for the MCP user and the rules of the configuration:
+
+```
+Logged in as MCP agent <mcp-agent@example.com>, role user
+Sees 42 resources and 6 folders
+Rules: read, secrets, no write, no share
+Scope: 2 of the 6 folders
+The agent can read 12 resources, read the secret of 12, change 0, share 0
+```
+
+## Refusals
+
+A tool the rules refuse is not offered to the agent. When a call reaches what the rules forbid, the
+agent gets an error naming the rule, such as `refused by the MCP rules: outside scope.folders` or
+`refused by the MCP rules: access.write is false`.
 
 ## Examples
 
