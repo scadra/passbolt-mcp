@@ -20,7 +20,7 @@ use rmcp::{tool, tool_handler, tool_router, Json, ServerHandler};
 use schemars::JsonSchema;
 use serde::Serialize;
 
-use crate::rules::Rules;
+use crate::rules::{Access, Rules};
 use crate::session::{self, Session};
 
 const INSTRUCTIONS: &str = "Passbolt, the password manager of the team, through a Passbolt user \
@@ -49,15 +49,41 @@ pub struct WhoAmI {
     pub scope_folders: Option<usize>,
 }
 
+/// What each tool needs from the rules. A tool missing here is never offered.
+fn needs(tool: &str) -> Option<Access> {
+    match tool {
+        "whoami" => Some(Access::Read),
+        _ => None,
+    }
+}
+
 #[tool_router]
 impl PassboltMcp {
     #[must_use]
     pub fn new(session: Arc<Session>, rules: Arc<Rules>) -> Self {
+        let tool_router = Self::router(&rules);
         Self {
             session,
             rules,
-            tool_router: Self::tool_router(),
+            tool_router,
         }
+    }
+
+    /// The tools the rules offer: the others are not listed, and cannot be called.
+    fn router(rules: &Rules) -> ToolRouter<Self> {
+        let mut router = Self::tool_router();
+        for tool in router.list_all() {
+            let offered = needs(&tool.name).is_some_and(|needs| {
+                rules
+                    .offers(&tool.name, needs)
+                    .inspect_err(|refusal| tracing::debug!("{}: {refusal}", tool.name))
+                    .is_ok()
+            });
+            if !offered {
+                router.remove_route(&tool.name);
+            }
+        }
+        router
     }
 
     /// The Passbolt user this server acts as, and what its rules allow.
@@ -95,5 +121,41 @@ impl ServerHandler for PassboltMcp {
                 env!("CARGO_PKG_VERSION"),
             ))
             .with_instructions(INSTRUCTIONS)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::AccessConfig;
+    use crate::scope::Scope;
+
+    fn tools(access: AccessConfig) -> Vec<String> {
+        PassboltMcp::router(&Rules::new(access, Scope::default()))
+            .list_all()
+            .into_iter()
+            .map(|tool| tool.name.to_string())
+            .collect()
+    }
+
+    #[test]
+    fn every_tool_needs_something() {
+        for tool in PassboltMcp::tool_router().list_all() {
+            assert!(needs(&tool.name).is_some(), "{} needs nothing", tool.name);
+        }
+    }
+
+    #[test]
+    fn read_only_by_default() {
+        assert_eq!(tools(AccessConfig::default()), ["whoami"]);
+    }
+
+    #[test]
+    fn denied() {
+        let access = AccessConfig {
+            deny_tools: vec!["whoami".into()],
+            ..AccessConfig::default()
+        };
+        assert_eq!(tools(access).len(), 0);
     }
 }
