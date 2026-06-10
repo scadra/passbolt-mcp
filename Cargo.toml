@@ -12,7 +12,8 @@ anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }
 directories = "5"
 passbolt-sdk = { package = "switch-case-passbolt-sdk", version = "0.1.2", features = ["native", "totp"] }
-rmcp = { version = "3.9", features = ["server", "transport-io"] }
+rmcp = { version = "3.9", features = ["macros", "server", "transport-io"] }
+schemars = "1"
 secrecy = "0.10"
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }

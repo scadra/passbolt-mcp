@@ -16,9 +16,12 @@ use std::sync::Arc;
 use clap::{Parser, Subcommand};
 use passbolt_mcp::config::Config;
 use passbolt_mcp::rules::Rules;
+use passbolt_mcp::server::PassboltMcp;
 use passbolt_mcp::server_key::{self, Pinned};
 use passbolt_mcp::session::{self, Session};
 use passbolt_sdk::{FolderQuery, ResourceQuery};
+use rmcp::transport::stdio;
+use rmcp::ServiceExt;
 use tracing_subscriber::EnvFilter;
 
 /// An MCP server for Passbolt: an AI agent works with Passbolt through a user of its own.
@@ -142,7 +145,7 @@ async fn serve(config: &Config) -> anyhow::Result<()> {
         "logged in as {}",
         session::display_name(&session.me().await?)
     );
-    let _rules = match Rules::load(config, &session).await {
+    let rules = match Rules::load(config, &session).await {
         Ok(rules) => rules,
         Err(error) => {
             session.close().await;
@@ -150,11 +153,22 @@ async fn serve(config: &Config) -> anyhow::Result<()> {
         }
     };
     let keep_alive = session.keep_alive();
-    shutdown().await;
+    let served = async {
+        let server = PassboltMcp::new(Arc::clone(&session), Arc::new(rules))
+            .serve(stdio())
+            .await?;
+        server.waiting().await?;
+        anyhow::Ok(())
+    };
+    // Until the client closes stdin, or a signal.
+    let result = tokio::select! {
+        result = served => result,
+        () = shutdown() => Ok(()),
+    };
     keep_alive.abort();
     session.close().await;
     tracing::info!("logged out");
-    Ok(())
+    result
 }
 
 /// Ctrl-C, or SIGTERM from a service manager.
