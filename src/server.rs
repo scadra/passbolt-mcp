@@ -20,6 +20,7 @@ use rmcp::{tool, tool_handler, tool_router, Json, ServerHandler};
 use schemars::JsonSchema;
 use serde::Serialize;
 
+use crate::error::ToolError;
 use crate::rules::{Access, Rules};
 use crate::session::{self, Session};
 
@@ -88,12 +89,8 @@ impl PassboltMcp {
 
     /// The Passbolt user this server acts as, and what its rules allow.
     #[tool(annotations(read_only_hint = true))]
-    async fn whoami(&self) -> Result<Json<WhoAmI>, String> {
-        let me = self
-            .session
-            .me()
-            .await
-            .map_err(|error| format!("{error:#}"))?;
+    async fn whoami(&self) -> Result<Json<WhoAmI>, ToolError> {
+        let me = self.session.me().await?;
         let access = self.rules.access();
         Ok(Json(WhoAmI {
             user: session::display_name(&me),

@@ -13,6 +13,7 @@
 //! An MCP server for Passbolt: an AI agent works with Passbolt through a user of its own.
 
 pub mod config;
+pub mod error;
 pub mod passphrase;
 pub mod rules;
 pub mod scope;
