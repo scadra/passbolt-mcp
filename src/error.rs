@@ -40,6 +40,13 @@ impl ToolError {
     }
 }
 
+impl ToolError {
+    #[must_use]
+    pub const fn invalid_argument(message: String) -> Self {
+        Self::new("invalid_argument", message)
+    }
+}
+
 impl From<Refusal> for ToolError {
     fn from(refusal: Refusal) -> Self {
         Self::new("refused", refusal.to_string())
