@@ -10,6 +10,7 @@
 // @link          https://www.passbolt.com Passbolt(tm)
 // @since         0.1.0
 
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -21,6 +22,8 @@ use passbolt_mcp::server_key::{self, Pinned};
 use passbolt_mcp::session::{self, Session};
 use passbolt_sdk::{FolderQuery, ResourceQuery};
 use rmcp::transport::stdio;
+use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
+use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
 use rmcp::ServiceExt;
 use tracing_subscriber::EnvFilter;
 
@@ -38,8 +41,12 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Log in as the MCP user and serve the agent (the default)
-    Serve,
+    /// Log in as the MCP user and serve the agent, over stdio (the default)
+    Serve {
+        /// Serve over HTTP instead, at `http://ADDRESS/mcp`; a loopback address only
+        #[arg(long, value_name = "ADDRESS")]
+        http: Option<SocketAddr>,
+    },
     /// Pin the server key: run it once, before the first login
     Verify,
     /// Log in as the MCP user and tell who it is and what it sees
@@ -67,7 +74,8 @@ async fn main() -> anyhow::Result<()> {
             Pinned::Same(fingerprint) => println!("The server key {fingerprint} is pinned"),
         },
         Some(Command::Check) => check(&config).await?,
-        None | Some(Command::Serve) => serve(&config).await?,
+        Some(Command::Serve { http }) => serve(&config, http).await?,
+        None => serve(&config, None).await?,
     }
     Ok(())
 }
@@ -139,7 +147,13 @@ fn print_rules(rules: &Rules, folders: usize) {
     }
 }
 
-async fn serve(config: &Config) -> anyhow::Result<()> {
+async fn serve(config: &Config, http: Option<SocketAddr>) -> anyhow::Result<()> {
+    if let Some(address) = http {
+        anyhow::ensure!(
+            address.ip().is_loopback(),
+            "--http {address}: serve on a loopback address only, such as 127.0.0.1:8808"
+        );
+    }
     let session = Arc::new(Session::open(config).await?);
     tracing::info!(
         "logged in as {}",
@@ -153,22 +167,41 @@ async fn serve(config: &Config) -> anyhow::Result<()> {
         }
     };
     let keep_alive = session.keep_alive();
-    let served = async {
-        let server = PassboltMcp::new(Arc::clone(&session), Arc::new(rules))
-            .serve(stdio())
-            .await?;
-        server.waiting().await?;
+    let server = PassboltMcp::new(Arc::clone(&session), Arc::new(rules));
+    let running = async {
+        match http {
+            None => {
+                server.serve(stdio()).await?.waiting().await?;
+            }
+            Some(address) => serve_http(address, server).await?,
+        }
         anyhow::Ok(())
     };
     // Until the client closes stdin, or a signal.
     let result = tokio::select! {
-        result = served => result,
+        result = running => result,
         () = shutdown() => Ok(()),
     };
     keep_alive.abort();
     session.close().await;
     tracing::info!("logged out");
     result
+}
+
+/// Every HTTP client shares the session of the MCP user. Requests from a web page (with an
+/// `Origin`) are refused, and only loopback host names are accepted: a page cannot reach it.
+async fn serve_http(address: SocketAddr, server: PassboltMcp) -> anyhow::Result<()> {
+    let service: StreamableHttpService<PassboltMcp, LocalSessionManager> =
+        StreamableHttpService::new(
+            move || Ok(server.clone()),
+            Arc::default(),
+            StreamableHttpServerConfig::default().enforce_origin_validation(),
+        );
+    let router = axum::Router::new().nest_service("/mcp", service);
+    let listener = tokio::net::TcpListener::bind(address).await?;
+    tracing::info!("serving on http://{address}/mcp");
+    axum::serve(listener, router).await?;
+    Ok(())
 }
 
 /// Ctrl-C, or SIGTERM from a service manager.
