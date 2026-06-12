@@ -97,6 +97,7 @@ The documentation is in [`docs/`](docs/README.md):
 
 - [Introduction](docs/README.md)
 - [The MCP user](docs/guides/mcp-user.md): create it, share with it, revoke it
+- [Connect an agent](docs/guides/serve.md): Claude Code, Claude Desktop, stdio or HTTP
 - [Rules](docs/rules.md): what the agent may do
 - [Tools](docs/tools.md): what the agent can call
 - [Security](docs/security.md)
