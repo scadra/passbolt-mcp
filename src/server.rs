@@ -14,14 +14,21 @@
 
 use std::sync::Arc;
 
+use passbolt_sdk::resource::list::list_resources;
+use passbolt_sdk::types::Folder;
+use passbolt_sdk::{FolderQuery, ResourceQuery};
 use rmcp::handler::server::router::tool::ToolRouter;
+use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{Implementation, ServerCapabilities, ServerConfig};
 use rmcp::{tool, tool_handler, tool_router, Json, ServerHandler};
 use schemars::JsonSchema;
 use serde::Serialize;
 
 use crate::error::ToolError;
+use crate::page::Page;
+use crate::read::{ListResources, ResourceSummary};
 use crate::rules::{Access, Rules};
+use crate::scope::{find_folder, folder_paths};
 use crate::session::{self, Session};
 
 const INSTRUCTIONS: &str = "Passbolt, the password manager of the team, through a Passbolt user \
@@ -53,7 +60,7 @@ pub struct WhoAmI {
 /// What each tool needs from the rules. A tool missing here is never offered.
 fn needs(tool: &str) -> Option<Access> {
     match tool {
-        "whoami" => Some(Access::Read),
+        "whoami" | "list_resources" => Some(Access::Read),
         _ => None,
     }
 }
@@ -85,6 +92,52 @@ impl PassboltMcp {
             }
         }
         router
+    }
+
+    /// Every folder the MCP user sees, in the scope or not: to name them.
+    async fn all_folders(&self) -> Result<Vec<Folder>, ToolError> {
+        Ok(self
+            .session
+            .call(|client| async move { client.get_folders(FolderQuery::default()).await })
+            .await?)
+    }
+
+    /// The resources the agent can see, with their names: never their secrets.
+    #[tool(annotations(read_only_hint = true))]
+    async fn list_resources(
+        &self,
+        Parameters(args): Parameters<ListResources>,
+    ) -> Result<Json<Page<ResourceSummary>>, ToolError> {
+        let folders = self.all_folders().await?;
+        let folder_ids = match &args.folder {
+            None => Vec::new(),
+            Some(folder) => {
+                let folder = find_folder(folder, &folders)
+                    .map_err(|error| ToolError::invalid_argument(error.to_string()))?;
+                self.rules.reaches(Some(&folder.id))?;
+                vec![folder.id.clone()]
+            }
+        };
+        let views = self
+            .session
+            .call(|client| {
+                let query = ResourceQuery {
+                    search: args.search.clone(),
+                    folder_ids: folder_ids.clone(),
+                    favorites_only: args.favorites_only,
+                    ..ResourceQuery::default()
+                };
+                async move { list_resources(&client, query, &[], None).await }
+            })
+            .await?;
+        let paths = folder_paths(&folders);
+        let mut resources: Vec<_> = views
+            .iter()
+            .filter(|view| self.rules.reaches(view.folder_parent_id.as_deref()).is_ok())
+            .map(|view| ResourceSummary::new(view, &paths))
+            .collect();
+        resources.sort_by_cached_key(|resource| resource.name.to_lowercase());
+        Ok(Json(args.page.page(resources)?))
     }
 
     /// The Passbolt user this server acts as, and what its rules allow.
