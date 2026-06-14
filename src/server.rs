@@ -15,6 +15,7 @@
 use std::sync::Arc;
 
 use passbolt_sdk::resource::list::list_resources;
+use passbolt_sdk::resource::view::ResourceView;
 use passbolt_sdk::types::Folder;
 use passbolt_sdk::{FolderQuery, ResourceQuery};
 use rmcp::handler::server::router::tool::ToolRouter;
@@ -26,7 +27,7 @@ use serde::Serialize;
 
 use crate::error::ToolError;
 use crate::page::Page;
-use crate::read::{ListResources, ResourceSummary};
+use crate::read::{ById, ListResources, ResourceDetails, ResourceSummary};
 use crate::rules::{Access, Rules};
 use crate::scope::{find_folder, folder_paths};
 use crate::session::{self, Session};
@@ -60,7 +61,7 @@ pub struct WhoAmI {
 /// What each tool needs from the rules. A tool missing here is never offered.
 fn needs(tool: &str) -> Option<Access> {
     match tool {
-        "whoami" | "list_resources" => Some(Access::Read),
+        "whoami" | "list_resources" | "get_resource" => Some(Access::Read),
         _ => None,
     }
 }
@@ -138,6 +139,28 @@ impl PassboltMcp {
             .collect();
         resources.sort_by_cached_key(|resource| resource.name.to_lowercase());
         Ok(Json(args.page.page(resources)?))
+    }
+
+    /// A resource: name, username, URIs, description, folder, dates. Never its secret.
+    #[tool(annotations(read_only_hint = true))]
+    async fn get_resource(
+        &self,
+        Parameters(ById { id }): Parameters<ById>,
+    ) -> Result<Json<ResourceDetails>, ToolError> {
+        let resource = self
+            .session
+            .call(|client| {
+                let id = id.clone();
+                async move { client.get_resource(&id).await }
+            })
+            .await?;
+        self.rules.reaches(resource.folder_parent_id.as_deref())?;
+        let client = self.session.client().await;
+        let metadata = client.decrypt_resource_metadata(&resource).await?;
+        let resource_types = client.resource_types().await?;
+        let view = ResourceView::new(resource, metadata, &resource_types)?;
+        let paths = folder_paths(&self.all_folders().await?);
+        Ok(Json(ResourceDetails::new(&view, &paths)))
     }
 
     /// The Passbolt user this server acts as, and what its rules allow.
