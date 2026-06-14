@@ -15,6 +15,7 @@
 use std::collections::HashMap;
 
 use passbolt_sdk::resource::view::ResourceView;
+use passbolt_sdk::types::{Folder, FolderTreeNode};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -97,6 +98,74 @@ impl ResourceSummary {
     }
 }
 
+/// `list_folders`.
+#[derive(Debug, Default, Deserialize, JsonSchema)]
+pub struct ListFolders {
+    /// Part of the name, any case.
+    pub search: Option<String>,
+    #[serde(flatten)]
+    pub page: PageArgs,
+}
+
+/// A folder in a list.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct FolderSummary {
+    pub id: String,
+    pub name: String,
+    /// `Parent/Child`, from the highest folder the MCP user sees.
+    pub path: String,
+    /// The permission of the MCP user: `read`, `update` or `owner`.
+    pub permission: String,
+}
+
+impl FolderSummary {
+    #[must_use]
+    pub fn new(folder: &Folder, folder_paths: &HashMap<String, String>) -> Self {
+        Self {
+            id: folder.id.clone(),
+            name: folder.name.clone(),
+            path: folder_paths
+                .get(&folder.id)
+                .cloned()
+                .unwrap_or_else(|| folder.name.clone()),
+            permission: permission_name(
+                folder
+                    .permission
+                    .as_ref()
+                    .and_then(|permission| permission.permission_type)
+                    .unwrap_or_default(),
+            )
+            .into(),
+        }
+    }
+}
+
+/// `folder_tree`.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct FolderTree {
+    pub roots: Vec<FolderNode>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct FolderNode {
+    pub id: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<Self>,
+}
+
+impl From<&FolderTreeNode> for FolderNode {
+    fn from(node: &FolderTreeNode) -> Self {
+        let mut children: Vec<Self> = node.children.iter().map(Self::from).collect();
+        children.sort_by_cached_key(|child| child.name.to_lowercase());
+        Self {
+            id: node.folder.id.clone(),
+            name: node.folder.name.clone(),
+            children,
+        }
+    }
+}
+
 /// An id, for the tools that take one.
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ById {
@@ -131,6 +200,39 @@ impl ResourceDetails {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn folder(id: &str, name: &str, parent: Option<&str>) -> Folder {
+        serde_json::from_value(serde_json::json!({
+            "id": id, "name": name, "folder_parent_id": parent,
+            "permission": { "type": 7 }
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn folder_summary() {
+        let folders = [folder("a", "Agents", None), folder("ci", "CI", Some("a"))];
+        let paths = crate::scope::folder_paths(&folders);
+        let summary = FolderSummary::new(&folders[1], &paths);
+        assert_eq!(summary.path, "Agents/CI");
+        assert_eq!(summary.permission, "update");
+    }
+
+    #[test]
+    fn tree() {
+        let folders = [
+            folder("a", "Agents", None),
+            folder("z", "Zeta", Some("a")),
+            folder("ci", "CI", Some("a")),
+        ];
+        let roots: Vec<FolderNode> = passbolt_sdk::build_folder_tree(&folders)
+            .iter()
+            .map(FolderNode::from)
+            .collect();
+        assert_eq!(roots.len(), 1);
+        let names: Vec<_> = roots[0].children.iter().map(|child| &child.name).collect();
+        assert_eq!(names, ["CI", "Zeta"]);
+    }
 
     #[test]
     fn permissions() {

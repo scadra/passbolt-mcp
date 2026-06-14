@@ -17,7 +17,7 @@ use std::sync::Arc;
 use passbolt_sdk::resource::list::list_resources;
 use passbolt_sdk::resource::view::ResourceView;
 use passbolt_sdk::types::Folder;
-use passbolt_sdk::{FolderQuery, ResourceQuery};
+use passbolt_sdk::{build_folder_tree, FolderQuery, ResourceQuery};
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{Implementation, ServerCapabilities, ServerConfig};
@@ -27,7 +27,10 @@ use serde::Serialize;
 
 use crate::error::ToolError;
 use crate::page::Page;
-use crate::read::{ById, ListResources, ResourceDetails, ResourceSummary};
+use crate::read::{
+    ById, FolderNode, FolderSummary, FolderTree, ListFolders, ListResources, ResourceDetails,
+    ResourceSummary,
+};
 use crate::rules::{Access, Rules};
 use crate::scope::{find_folder, folder_paths};
 use crate::session::{self, Session};
@@ -61,7 +64,9 @@ pub struct WhoAmI {
 /// What each tool needs from the rules. A tool missing here is never offered.
 fn needs(tool: &str) -> Option<Access> {
     match tool {
-        "whoami" | "list_resources" | "get_resource" => Some(Access::Read),
+        "whoami" | "list_resources" | "get_resource" | "list_folders" | "folder_tree" => {
+            Some(Access::Read)
+        }
         _ => None,
     }
 }
@@ -163,6 +168,46 @@ impl PassboltMcp {
         Ok(Json(ResourceDetails::new(&view, &paths)))
     }
 
+    /// The folders the agent can see, with their paths.
+    #[tool(annotations(read_only_hint = true))]
+    async fn list_folders(
+        &self,
+        Parameters(args): Parameters<ListFolders>,
+    ) -> Result<Json<Page<FolderSummary>>, ToolError> {
+        let folders = self.all_folders().await?;
+        let paths = folder_paths(&folders);
+        let search = args.search.as_deref().map(str::to_lowercase);
+        let mut found: Vec<_> = folders
+            .iter()
+            .filter(|folder| self.rules.reaches(Some(&folder.id)).is_ok())
+            .filter(|folder| {
+                search
+                    .as_deref()
+                    .is_none_or(|search| folder.name.to_lowercase().contains(search))
+            })
+            .map(|folder| FolderSummary::new(folder, &paths))
+            .collect();
+        found.sort_by_cached_key(|folder| folder.path.to_lowercase());
+        Ok(Json(args.page.page(found)?))
+    }
+
+    /// The folders the agent can see, as a tree.
+    #[tool(annotations(read_only_hint = true))]
+    async fn folder_tree(&self) -> Result<Json<FolderTree>, ToolError> {
+        let folders: Vec<Folder> = self
+            .all_folders()
+            .await?
+            .into_iter()
+            .filter(|folder| self.rules.reaches(Some(&folder.id)).is_ok())
+            .collect();
+        let mut roots: Vec<FolderNode> = build_folder_tree(&folders)
+            .iter()
+            .map(FolderNode::from)
+            .collect();
+        roots.sort_by_cached_key(|root| root.name.to_lowercase());
+        Ok(Json(FolderTree { roots }))
+    }
+
     /// The Passbolt user this server acts as, and what its rules allow.
     #[tool(annotations(read_only_hint = true))]
     async fn whoami(&self) -> Result<Json<WhoAmI>, ToolError> {
@@ -220,7 +265,16 @@ mod tests {
 
     #[test]
     fn read_only_by_default() {
-        assert_eq!(tools(AccessConfig::default()), ["whoami"]);
+        let tools = tools(AccessConfig::default());
+        for tool in PassboltMcp::tool_router().list_all() {
+            let offered = tools.contains(&tool.name.to_string());
+            assert_eq!(
+                offered,
+                needs(&tool.name) == Some(Access::Read),
+                "{}",
+                tool.name
+            );
+        }
     }
 
     #[test]
@@ -229,6 +283,6 @@ mod tests {
             deny_tools: vec!["whoami".into()],
             ..AccessConfig::default()
         };
-        assert_eq!(tools(access).len(), 0);
+        assert!(!tools(access).contains(&"whoami".to_string()));
     }
 }
