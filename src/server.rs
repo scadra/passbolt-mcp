@@ -28,8 +28,8 @@ use serde::Serialize;
 use crate::error::ToolError;
 use crate::page::Page;
 use crate::read::{
-    ById, FolderNode, FolderSummary, FolderTree, ListFolders, ListResources, ResourceDetails,
-    ResourceSummary,
+    ById, CommentView, Comments, FolderNode, FolderSummary, FolderTree, ListFolders, ListResources,
+    ResourceDetails, ResourceSummary,
 };
 use crate::rules::{Access, Rules};
 use crate::scope::{find_folder, folder_paths};
@@ -64,9 +64,8 @@ pub struct WhoAmI {
 /// What each tool needs from the rules. A tool missing here is never offered.
 fn needs(tool: &str) -> Option<Access> {
     match tool {
-        "whoami" | "list_resources" | "get_resource" | "list_folders" | "folder_tree" => {
-            Some(Access::Read)
-        }
+        "whoami" | "list_resources" | "get_resource" | "list_folders" | "folder_tree"
+        | "list_comments" => Some(Access::Read),
         _ => None,
     }
 }
@@ -152,14 +151,7 @@ impl PassboltMcp {
         &self,
         Parameters(ById { id }): Parameters<ById>,
     ) -> Result<Json<ResourceDetails>, ToolError> {
-        let resource = self
-            .session
-            .call(|client| {
-                let id = id.clone();
-                async move { client.get_resource(&id).await }
-            })
-            .await?;
-        self.rules.reaches(resource.folder_parent_id.as_deref())?;
+        let resource = self.resource_in_scope(&id).await?;
         let client = self.session.client().await;
         let metadata = client.decrypt_resource_metadata(&resource).await?;
         let resource_types = client.resource_types().await?;
@@ -206,6 +198,39 @@ impl PassboltMcp {
             .collect();
         roots.sort_by_cached_key(|root| root.name.to_lowercase());
         Ok(Json(FolderTree { roots }))
+    }
+
+    /// The resource `id`, if the agent can see it.
+    async fn resource_in_scope(
+        &self,
+        id: &str,
+    ) -> Result<passbolt_sdk::types::Resource, ToolError> {
+        let resource = self
+            .session
+            .call(|client| async move { client.get_resource(id).await })
+            .await?;
+        self.rules.reaches(resource.folder_parent_id.as_deref())?;
+        Ok(resource)
+    }
+
+    /// The comments on a resource, oldest first.
+    #[tool(annotations(read_only_hint = true))]
+    async fn list_comments(
+        &self,
+        Parameters(ById { id }): Parameters<ById>,
+    ) -> Result<Json<Comments>, ToolError> {
+        self.resource_in_scope(&id).await?;
+        let mut comments = self
+            .session
+            .call(|client| {
+                let id = id.clone();
+                async move { client.get_comments(&id).await }
+            })
+            .await?;
+        comments.sort_by_key(|comment| comment.created);
+        Ok(Json(Comments {
+            comments: comments.iter().map(CommentView::from).collect(),
+        }))
     }
 
     /// The Passbolt user this server acts as, and what its rules allow.
