@@ -15,7 +15,7 @@
 use std::collections::HashMap;
 
 use passbolt_sdk::resource::view::ResourceView;
-use passbolt_sdk::types::{Comment, Folder, FolderTreeNode, Group, Permission, User};
+use passbolt_sdk::types::{Aro, Comment, Folder, FolderTreeNode, Group, Permission, User};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -280,6 +280,51 @@ pub struct ResourceTypes {
     pub resource_types: Vec<ResourceTypeView>,
 }
 
+/// `search_aros`.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct SearchAros {
+    /// Part of a name, a username or a group name.
+    pub search: String,
+    #[serde(flatten)]
+    pub page: PageArgs,
+}
+
+/// A user or a group to share with.
+#[derive(Debug, PartialEq, Eq, Serialize, JsonSchema)]
+pub struct AroView {
+    /// `user` or `group`.
+    pub aro: String,
+    pub id: String,
+    /// `First Last <username>`, or the name of the group.
+    pub name: String,
+}
+
+impl From<&Aro> for AroView {
+    fn from(aro: &Aro) -> Self {
+        // Users have a username, groups a name.
+        let (kind, name) = match (&aro.username, &aro.name) {
+            (Some(username), _) => {
+                let profile = aro.profile.as_ref();
+                let full_name = [
+                    profile.and_then(|profile| profile.first_name.as_deref()),
+                    profile.and_then(|profile| profile.last_name.as_deref()),
+                ]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+                .join(" ");
+                ("user", format!("{full_name} <{username}>"))
+            }
+            (None, name) => ("group", name.clone().unwrap_or_default()),
+        };
+        Self {
+            aro: kind.into(),
+            id: aro.id.clone(),
+            name,
+        }
+    }
+}
+
 /// An id, for the tools that take one.
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ById {
@@ -371,6 +416,21 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(PermissionView::new(&unknown, &[], &[]).name, "u1");
+    }
+
+    #[test]
+    fn aros() {
+        let user: Aro = serde_json::from_value(serde_json::json!({
+            "id": "u1", "username": "ada@example.com",
+            "profile": { "first_name": "Ada", "last_name": "Lovelace" }
+        }))
+        .unwrap();
+        let group: Aro =
+            serde_json::from_value(serde_json::json!({ "id": "g1", "name": "Ops" })).unwrap();
+        assert_eq!(AroView::from(&user).name, "Ada Lovelace <ada@example.com>");
+        assert_eq!(AroView::from(&user).aro, "user");
+        assert_eq!(AroView::from(&group).aro, "group");
+        assert_eq!(AroView::from(&group).name, "Ops");
     }
 
     #[test]

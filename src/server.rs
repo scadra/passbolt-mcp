@@ -28,9 +28,9 @@ use serde::Serialize;
 use crate::error::ToolError;
 use crate::page::Page;
 use crate::read::{
-    ById, CommentView, Comments, FolderNode, FolderSummary, FolderTree, GetPermissions,
+    AroView, ById, CommentView, Comments, FolderNode, FolderSummary, FolderTree, GetPermissions,
     ListFolders, ListResources, PermissionView, Permissions, ResourceDetails, ResourceSummary,
-    ResourceTypeView, ResourceTypes,
+    ResourceTypeView, ResourceTypes, SearchAros,
 };
 use crate::rules::{Access, Rules};
 use crate::scope::{find_folder, folder_paths};
@@ -73,6 +73,7 @@ fn needs(tool: &str) -> Option<Access> {
         | "list_comments"
         | "get_permissions"
         | "list_resource_types" => Some(Access::Read),
+        "search_aros" => Some(Access::Share),
         _ => None,
     }
 }
@@ -303,6 +304,22 @@ impl PassboltMcp {
                 })
                 .collect(),
         }))
+    }
+
+    /// Users and groups to share with.
+    #[tool(annotations(read_only_hint = true))]
+    async fn search_aros(
+        &self,
+        Parameters(args): Parameters<SearchAros>,
+    ) -> Result<Json<Page<AroView>>, ToolError> {
+        let search = args.search.as_str();
+        let aros = self
+            .session
+            .call(|client| async move { client.search_aros(search).await })
+            .await?;
+        Ok(Json(
+            args.page.page(aros.iter().map(AroView::from).collect())?,
+        ))
     }
 
     /// The Passbolt user this server acts as, and what its rules allow.
