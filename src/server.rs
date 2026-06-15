@@ -17,7 +17,7 @@ use std::sync::Arc;
 use passbolt_sdk::resource::list::list_resources;
 use passbolt_sdk::resource::view::ResourceView;
 use passbolt_sdk::types::Folder;
-use passbolt_sdk::{build_folder_tree, FolderQuery, ResourceQuery};
+use passbolt_sdk::{build_folder_tree, FolderQuery, GroupQuery, ResourceQuery, UserQuery};
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{Implementation, ServerCapabilities, ServerConfig};
@@ -28,8 +28,8 @@ use serde::Serialize;
 use crate::error::ToolError;
 use crate::page::Page;
 use crate::read::{
-    ById, CommentView, Comments, FolderNode, FolderSummary, FolderTree, ListFolders, ListResources,
-    ResourceDetails, ResourceSummary,
+    ById, CommentView, Comments, FolderNode, FolderSummary, FolderTree, GetPermissions,
+    ListFolders, ListResources, PermissionView, Permissions, ResourceDetails, ResourceSummary,
 };
 use crate::rules::{Access, Rules};
 use crate::scope::{find_folder, folder_paths};
@@ -65,7 +65,7 @@ pub struct WhoAmI {
 fn needs(tool: &str) -> Option<Access> {
     match tool {
         "whoami" | "list_resources" | "get_resource" | "list_folders" | "folder_tree"
-        | "list_comments" => Some(Access::Read),
+        | "list_comments" | "get_permissions" => Some(Access::Read),
         _ => None,
     }
 }
@@ -230,6 +230,51 @@ impl PassboltMcp {
         comments.sort_by_key(|comment| comment.created);
         Ok(Json(Comments {
             comments: comments.iter().map(CommentView::from).collect(),
+        }))
+    }
+
+    /// Who has access to a resource or a folder, and how.
+    #[tool(annotations(read_only_hint = true))]
+    async fn get_permissions(
+        &self,
+        Parameters(args): Parameters<GetPermissions>,
+    ) -> Result<Json<Permissions>, ToolError> {
+        let permissions = match (&args.resource, &args.folder) {
+            (Some(id), None) => {
+                self.resource_in_scope(id).await?;
+                self.session
+                    .call(|client| async move { client.get_resource_permissions(id).await })
+                    .await?
+            }
+            (None, Some(folder)) => {
+                let folders = self.all_folders().await?;
+                let folder = find_folder(folder, &folders)
+                    .map_err(|error| ToolError::invalid_argument(error.to_string()))?;
+                self.rules.reaches(Some(&folder.id))?;
+                let id = folder.id.as_str();
+                self.session
+                    .call(|client| async move { client.get_folder_permissions(id).await })
+                    .await?
+            }
+            _ => {
+                return Err(ToolError::invalid_argument(
+                    "give resource or folder, one of them".into(),
+                ))
+            }
+        };
+        let users = self
+            .session
+            .call(|client| async move { client.get_users(UserQuery::default()).await })
+            .await?;
+        let groups = self
+            .session
+            .call(|client| async move { client.get_groups(GroupQuery::default()).await })
+            .await?;
+        Ok(Json(Permissions {
+            permissions: permissions
+                .iter()
+                .map(|permission| PermissionView::new(permission, &users, &groups))
+                .collect(),
         }))
     }
 

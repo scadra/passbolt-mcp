@@ -15,7 +15,7 @@
 use std::collections::HashMap;
 
 use passbolt_sdk::resource::view::ResourceView;
-use passbolt_sdk::types::{Comment, Folder, FolderTreeNode};
+use passbolt_sdk::types::{Comment, Folder, FolderTreeNode, Group, Permission, User};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -200,6 +200,69 @@ pub struct Comments {
     pub comments: Vec<CommentView>,
 }
 
+/// `get_permissions`: give `resource` or `folder`.
+#[derive(Debug, Default, Deserialize, JsonSchema)]
+pub struct GetPermissions {
+    /// The id of a resource.
+    pub resource: Option<String>,
+    /// A folder, by path (`Agents/CI`) or id.
+    pub folder: Option<String>,
+}
+
+/// Who has access, and how.
+#[derive(Debug, PartialEq, Eq, Serialize, JsonSchema)]
+pub struct PermissionView {
+    /// `user` or `group`.
+    pub aro: String,
+    /// The id of the user or group.
+    pub id: String,
+    /// `First Last <username>`, or the name of the group.
+    pub name: String,
+    /// `read`, `update` or `owner`.
+    pub permission: String,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct Permissions {
+    pub permissions: Vec<PermissionView>,
+}
+
+impl PermissionView {
+    /// Named after `users` and `groups`, when the permission does not carry the name.
+    #[must_use]
+    pub fn new(permission: &Permission, users: &[User], groups: &[Group]) -> Self {
+        let id = permission.aro_foreign_key.clone().unwrap_or_default();
+        let is_group = permission
+            .aro
+            .as_deref()
+            .is_some_and(|aro| aro.eq_ignore_ascii_case("group"));
+        let name = if is_group {
+            permission
+                .group
+                .as_ref()
+                .map(|group| group.name.clone())
+                .or_else(|| {
+                    groups
+                        .iter()
+                        .find(|group| group.id == id)
+                        .map(|group| group.name.clone())
+                })
+        } else {
+            permission
+                .user
+                .as_deref()
+                .or_else(|| users.iter().find(|user| user.id == id))
+                .map(crate::session::display_name)
+        };
+        Self {
+            aro: if is_group { "group" } else { "user" }.into(),
+            name: name.unwrap_or_else(|| id.clone()),
+            id,
+            permission: permission_name(permission.permission_type.unwrap_or_default()).into(),
+        }
+    }
+}
+
 /// An id, for the tools that take one.
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ById {
@@ -266,6 +329,31 @@ mod tests {
         assert_eq!(roots.len(), 1);
         let names: Vec<_> = roots[0].children.iter().map(|child| &child.name).collect();
         assert_eq!(names, ["CI", "Zeta"]);
+    }
+
+    #[test]
+    fn permission_view() {
+        let permission: Permission = serde_json::from_value(serde_json::json!({
+            "aro": "Group", "aro_foreign_key": "g1", "type": 15
+        }))
+        .unwrap();
+        let group: Group =
+            serde_json::from_value(serde_json::json!({ "id": "g1", "name": "MCP agents" }))
+                .unwrap();
+        assert_eq!(
+            PermissionView::new(&permission, &[], &[group]),
+            PermissionView {
+                aro: "group".into(),
+                id: "g1".into(),
+                name: "MCP agents".into(),
+                permission: "owner".into(),
+            }
+        );
+        let unknown: Permission = serde_json::from_value(serde_json::json!({
+            "aro": "User", "aro_foreign_key": "u1", "type": 1
+        }))
+        .unwrap();
+        assert_eq!(PermissionView::new(&unknown, &[], &[]).name, "u1");
     }
 
     #[test]
