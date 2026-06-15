@@ -30,6 +30,7 @@ use crate::page::Page;
 use crate::read::{
     ById, CommentView, Comments, FolderNode, FolderSummary, FolderTree, GetPermissions,
     ListFolders, ListResources, PermissionView, Permissions, ResourceDetails, ResourceSummary,
+    ResourceTypeView, ResourceTypes,
 };
 use crate::rules::{Access, Rules};
 use crate::scope::{find_folder, folder_paths};
@@ -64,8 +65,14 @@ pub struct WhoAmI {
 /// What each tool needs from the rules. A tool missing here is never offered.
 fn needs(tool: &str) -> Option<Access> {
     match tool {
-        "whoami" | "list_resources" | "get_resource" | "list_folders" | "folder_tree"
-        | "list_comments" | "get_permissions" => Some(Access::Read),
+        "whoami"
+        | "list_resources"
+        | "get_resource"
+        | "list_folders"
+        | "folder_tree"
+        | "list_comments"
+        | "get_permissions"
+        | "list_resource_types" => Some(Access::Read),
         _ => None,
     }
 }
@@ -274,6 +281,26 @@ impl PassboltMcp {
             permissions: permissions
                 .iter()
                 .map(|permission| PermissionView::new(permission, &users, &groups))
+                .collect(),
+        }))
+    }
+
+    /// The resource types of the server: what a resource can hold.
+    #[tool(annotations(read_only_hint = true))]
+    async fn list_resource_types(&self) -> Result<Json<ResourceTypes>, ToolError> {
+        let types = self
+            .session
+            .call(|client| async move { client.resource_types().await })
+            .await?;
+        Ok(Json(ResourceTypes {
+            resource_types: types
+                .iter()
+                .map(|resource_type| ResourceTypeView {
+                    id: resource_type.id.clone(),
+                    slug: resource_type.slug.clone(),
+                    name: resource_type.name.clone(),
+                    v5: resource_type.is_v5(),
+                })
                 .collect(),
         }))
     }

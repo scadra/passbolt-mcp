@@ -263,6 +263,23 @@ impl PermissionView {
     }
 }
 
+/// A resource type of the server.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct ResourceTypeView {
+    pub id: String,
+    /// Such as `v5-default` or `password-and-description`.
+    pub slug: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Its metadata are encrypted (v5).
+    pub v5: bool,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct ResourceTypes {
+    pub resource_types: Vec<ResourceTypeView>,
+}
+
 /// An id, for the tools that take one.
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ById {
