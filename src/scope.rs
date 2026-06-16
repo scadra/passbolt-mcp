@@ -14,7 +14,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use passbolt_sdk::collect_subtree_ids;
 use passbolt_sdk::types::Folder;
 
@@ -30,13 +30,10 @@ impl Scope {
         if entries.is_empty() {
             return Ok(Self::default());
         }
-        let by_id: HashMap<&str, &Folder> = folders
-            .iter()
-            .map(|folder| (folder.id.as_str(), folder))
-            .collect();
         let mut ids = HashSet::new();
         for entry in entries {
-            let root = find(entry, folders, &by_id)?;
+            let root =
+                find_folder(entry, folders).map_err(|error| anyhow!("scope.folders: {error}"))?;
             ids.extend(collect_subtree_ids(&root.id, folders));
         }
         Ok(Self { folders: Some(ids) })
@@ -59,23 +56,38 @@ impl Scope {
     }
 }
 
-fn find<'a>(
-    entry: &str,
-    folders: &'a [Folder],
-    by_id: &HashMap<&str, &'a Folder>,
-) -> Result<&'a Folder> {
+/// The folder `entry` names, by id or by path (`Agents/CI`), among `folders`.
+pub fn find_folder<'a>(entry: &str, folders: &'a [Folder]) -> Result<&'a Folder> {
+    let by_id = by_id(folders);
     if let Some(folder) = by_id.get(entry) {
         return Ok(folder);
     }
     let wanted = entry.trim_matches('/');
     let mut found = folders
         .iter()
-        .filter(|folder| path(folder, by_id) == wanted);
+        .filter(|folder| path(folder, &by_id) == wanted);
     match (found.next(), found.next()) {
         (Some(folder), None) => Ok(folder),
-        (Some(_), Some(_)) => bail!("scope.folders: several folders are {entry}: give its id"),
-        (None, _) => bail!("scope.folders: {entry} is not a folder the MCP user sees"),
+        (Some(_), Some(_)) => bail!("several folders are {entry}: give its id"),
+        (None, _) => bail!("{entry} is not a folder the MCP user sees"),
     }
+}
+
+/// The path of each folder, by id.
+#[must_use]
+pub fn folder_paths(folders: &[Folder]) -> HashMap<String, String> {
+    let by_id = by_id(folders);
+    folders
+        .iter()
+        .map(|folder| (folder.id.clone(), path(folder, &by_id)))
+        .collect()
+}
+
+fn by_id(folders: &[Folder]) -> HashMap<&str, &Folder> {
+    folders
+        .iter()
+        .map(|folder| (folder.id.as_str(), folder))
+        .collect()
 }
 
 /// `Parent/Child`, from the highest parent the MCP user sees.
@@ -143,6 +155,13 @@ mod tests {
         assert!(scope.contains(Some("ops-ci")));
         assert!(scope.contains(Some("rotation")));
         assert!(!scope.contains(Some("ops")));
+    }
+
+    #[test]
+    fn paths() {
+        let paths = folder_paths(&folders());
+        assert_eq!(paths["deploy"], "Agents/CI/Deploy");
+        assert_eq!(paths["ops"], "Ops");
     }
 
     #[test]

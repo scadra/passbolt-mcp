@@ -16,6 +16,7 @@ pub mod config;
 pub mod error;
 pub mod page;
 pub mod passphrase;
+pub mod read;
 pub mod rules;
 pub mod scope;
 pub mod server;
