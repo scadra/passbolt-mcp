@@ -14,6 +14,7 @@
 
 use std::sync::Arc;
 
+use passbolt_sdk::resource::get::get_totp_code;
 use passbolt_sdk::resource::list::list_resources;
 use passbolt_sdk::resource::view::ResourceView;
 use passbolt_sdk::types::Folder;
@@ -35,7 +36,7 @@ use crate::read::{
 };
 use crate::rules::{Access, Rules};
 use crate::scope::{find_folder, folder_paths};
-use crate::secrets::{self, GetSecret, SecretField};
+use crate::secrets::{self, GetSecret, SecretField, TotpCode};
 use crate::session::{self, Session};
 
 const INSTRUCTIONS: &str = "Passbolt, the password manager of the team, through a Passbolt user \
@@ -75,7 +76,7 @@ fn needs(tool: &str) -> Option<Access> {
         | "list_comments"
         | "get_permissions"
         | "list_resource_types" => Some(Access::Read),
-        "get_secret" => Some(Access::Secrets),
+        "get_secret" | "get_totp_code" => Some(Access::Secrets),
         "search_aros" => Some(Access::Share),
         _ => None,
     }
@@ -351,6 +352,27 @@ impl PassboltMcp {
             id: args.id,
             field,
             value,
+        }))
+    }
+
+    /// The current TOTP code of a resource; never its seed.
+    #[tool(annotations(read_only_hint = true))]
+    async fn get_totp_code(
+        &self,
+        Parameters(ById { id }): Parameters<ById>,
+    ) -> Result<Json<TotpCode>, ToolError> {
+        self.resource_in_scope(&id).await?;
+        let (code, seconds_remaining) = self
+            .session
+            .call(|client| {
+                let id = id.clone();
+                async move { get_totp_code(&client, &id).await }
+            })
+            .await?;
+        Ok(Json(TotpCode {
+            id,
+            code,
+            seconds_remaining,
         }))
     }
 

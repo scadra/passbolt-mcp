@@ -37,6 +37,15 @@ pub struct SecretField {
     pub value: String,
 }
 
+/// `get_totp_code`: the current code, never the seed.
+#[derive(Serialize, JsonSchema)]
+pub struct TotpCode {
+    pub id: String,
+    pub code: String,
+    /// How long the code stays valid.
+    pub seconds_remaining: u64,
+}
+
 /// The `field` of `secret`: a string. The TOTP has its own tool, which never gives the seed.
 pub fn field(secret: &Map<String, Value>, field: &str) -> Result<String, ToolError> {
     if field == "totp" {
@@ -49,7 +58,9 @@ pub fn field(secret: &Map<String, Value>, field: &str) -> Result<String, ToolErr
     }
     let mut fields: Vec<&str> = secret
         .iter()
-        .filter(|(name, value)| value.is_string() && name.as_str() != "totp")
+        .filter(|(name, value)| {
+            value.is_string() && !matches!(name.as_str(), "totp" | "object_type")
+        })
         .map(|(name, _)| name.as_str())
         .collect();
     fields.sort_unstable();
@@ -91,7 +102,7 @@ mod tests {
         let error = field(&secret(), "pin").unwrap_err();
         assert_eq!(
             error.message,
-            "the secret has no field pin; it has: description, object_type, password"
+            "the secret has no field pin; it has: description, password"
         );
         assert!(!error.message.contains("s3cret"));
     }
