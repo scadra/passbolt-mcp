@@ -24,6 +24,7 @@ use rmcp::model::{Implementation, ServerCapabilities, ServerConfig};
 use rmcp::{tool, tool_handler, tool_router, Json, ServerHandler};
 use schemars::JsonSchema;
 use serde::Serialize;
+use serde_json::Map;
 
 use crate::error::ToolError;
 use crate::page::Page;
@@ -34,6 +35,7 @@ use crate::read::{
 };
 use crate::rules::{Access, Rules};
 use crate::scope::{find_folder, folder_paths};
+use crate::secrets::{self, GetSecret, SecretField};
 use crate::session::{self, Session};
 
 const INSTRUCTIONS: &str = "Passbolt, the password manager of the team, through a Passbolt user \
@@ -73,6 +75,7 @@ fn needs(tool: &str) -> Option<Access> {
         | "list_comments"
         | "get_permissions"
         | "list_resource_types" => Some(Access::Read),
+        "get_secret" => Some(Access::Secrets),
         "search_aros" => Some(Access::Share),
         _ => None,
     }
@@ -320,6 +323,35 @@ impl PassboltMcp {
         Ok(Json(
             args.page.page(aros.iter().map(AroView::from).collect())?,
         ))
+    }
+
+    /// One field of the secret of a resource: its password by default.
+    #[tool(annotations(read_only_hint = true))]
+    async fn get_secret(
+        &self,
+        Parameters(args): Parameters<GetSecret>,
+    ) -> Result<Json<SecretField>, ToolError> {
+        let resource = self.resource_in_scope(&args.id).await?;
+        let client = self.session.client().await;
+        let metadata = client.decrypt_resource_metadata(&resource).await?;
+        let text = client
+            .decrypt_resource_secret_text(&resource)
+            .await?
+            .map(zeroize::Zeroizing::new);
+        let resource_types = client.resource_types().await?;
+        let view = ResourceView::new(resource, metadata, &resource_types)?;
+        let view = match &text {
+            Some(text) => view.with_secret(text)?,
+            None => view,
+        };
+        let field = args.field.unwrap_or_else(|| "password".into());
+        let empty = Map::new();
+        let value = secrets::field(view.secret.as_ref().unwrap_or(&empty), &field)?;
+        Ok(Json(SecretField {
+            id: args.id,
+            field,
+            value,
+        }))
     }
 
     /// The Passbolt user this server acts as, and what its rules allow.
