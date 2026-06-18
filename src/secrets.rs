@@ -46,6 +46,16 @@ pub struct TotpCode {
     pub seconds_remaining: u64,
 }
 
+/// `check_password_pwned`.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct Pwned {
+    pub id: String,
+    /// The password is in a known breach: change it.
+    pub pwned: bool,
+    /// How many times Have I Been Pwned saw it.
+    pub breaches: u64,
+}
+
 /// The `field` of `secret`: a string. The TOTP has its own tool, which never gives the seed.
 pub fn field(secret: &Map<String, Value>, field: &str) -> Result<String, ToolError> {
     if field == "totp" {
