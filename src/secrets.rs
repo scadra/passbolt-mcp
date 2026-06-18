@@ -13,6 +13,8 @@
 //! What the secret tools return, with `access.secrets` only. A secret goes to the agent and
 //! nowhere else: never to the logs, the errors or the audit file.
 
+use rand::rngs::OsRng;
+use rand::seq::SliceRandom;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -56,6 +58,72 @@ pub struct Pwned {
     pub breaches: u64,
 }
 
+/// `generate_password`.
+// Four independent character classes, as the arguments of a tool.
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(default)]
+pub struct GeneratePassword {
+    /// 20 by default, from 8 to 128.
+    pub length: usize,
+    pub lowercase: bool,
+    pub uppercase: bool,
+    pub digits: bool,
+    pub symbols: bool,
+}
+
+impl Default for GeneratePassword {
+    fn default() -> Self {
+        Self {
+            length: 20,
+            lowercase: true,
+            uppercase: true,
+            digits: true,
+            symbols: true,
+        }
+    }
+}
+
+#[derive(Serialize, JsonSchema)]
+pub struct GeneratedPassword {
+    /// Not saved anywhere: give it to `create_resource` or `update_resource`.
+    pub password: String,
+}
+
+const LOWERCASE: &[u8] = b"abcdefghijklmnopqrstuvwxyz";
+const UPPERCASE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const DIGITS: &[u8] = b"0123456789";
+const SYMBOLS: &[u8] = b"!#$%&()*+,-./:;<=>?@[]^_{|}~";
+
+/// A random password from the system randomness, with at least one character of each class.
+pub fn generate(args: &GeneratePassword) -> Result<String, ToolError> {
+    if !(8..=128).contains(&args.length) {
+        return Err(ToolError::invalid_argument("length: from 8 to 128".into()));
+    }
+    let classes: Vec<&[u8]> = [
+        (args.lowercase, LOWERCASE),
+        (args.uppercase, UPPERCASE),
+        (args.digits, DIGITS),
+        (args.symbols, SYMBOLS),
+    ]
+    .into_iter()
+    .filter_map(|(wanted, class)| wanted.then_some(class))
+    .collect();
+    if classes.is_empty() {
+        return Err(ToolError::invalid_argument(
+            "choose at least one of lowercase, uppercase, digits, symbols".into(),
+        ));
+    }
+    let all: Vec<u8> = classes.concat();
+    let mut password: Vec<u8> = classes
+        .iter()
+        .map(|class| *class.choose(&mut OsRng).expect("a class"))
+        .collect();
+    password.extend((password.len()..args.length).map(|_| *all.choose(&mut OsRng).expect("chars")));
+    password.shuffle(&mut OsRng);
+    Ok(String::from_utf8(password).expect("ASCII"))
+}
+
 /// The `field` of `secret`: a string. The TOTP has its own tool, which never gives the seed.
 pub fn field(secret: &Map<String, Value>, field: &str) -> Result<String, ToolError> {
     if field == "totp" {
@@ -92,6 +160,48 @@ mod tests {
             "totp": { "secret_key": "JBSWY3DPEHPK3PXP" }
         }))
         .unwrap()
+    }
+
+    #[test]
+    fn generated() {
+        let password = generate(&GeneratePassword::default()).unwrap();
+        assert_eq!(password.len(), 20);
+        for class in [LOWERCASE, UPPERCASE, DIGITS, SYMBOLS] {
+            assert!(password.bytes().any(|byte| class.contains(&byte)));
+        }
+        assert_ne!(password, generate(&GeneratePassword::default()).unwrap());
+    }
+
+    #[test]
+    fn digits_only() {
+        let args = GeneratePassword {
+            length: 8,
+            lowercase: false,
+            uppercase: false,
+            symbols: false,
+            ..GeneratePassword::default()
+        };
+        assert!(generate(&args)
+            .unwrap()
+            .bytes()
+            .all(|byte| byte.is_ascii_digit()));
+    }
+
+    #[test]
+    fn bad_arguments() {
+        let short = GeneratePassword {
+            length: 4,
+            ..GeneratePassword::default()
+        };
+        assert!(generate(&short).is_err());
+        let nothing = GeneratePassword {
+            lowercase: false,
+            uppercase: false,
+            digits: false,
+            symbols: false,
+            ..GeneratePassword::default()
+        };
+        assert!(generate(&nothing).is_err());
     }
 
     #[test]

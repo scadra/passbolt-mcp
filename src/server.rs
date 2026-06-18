@@ -37,7 +37,9 @@ use crate::read::{
 };
 use crate::rules::{Access, Rules};
 use crate::scope::{find_folder, folder_paths};
-use crate::secrets::{self, GetSecret, Pwned, SecretField, TotpCode};
+use crate::secrets::{
+    self, GeneratePassword, GeneratedPassword, GetSecret, Pwned, SecretField, TotpCode,
+};
 use crate::session::{self, Session};
 
 const INSTRUCTIONS: &str = "Passbolt, the password manager of the team, through a Passbolt user \
@@ -77,7 +79,9 @@ fn needs(tool: &str) -> Option<Access> {
         | "list_comments"
         | "get_permissions"
         | "list_resource_types" => Some(Access::Read),
-        "get_secret" | "get_totp_code" | "check_password_pwned" => Some(Access::Secrets),
+        "get_secret" | "get_totp_code" | "check_password_pwned" | "generate_password" => {
+            Some(Access::Secrets)
+        }
         "search_aros" => Some(Access::Share),
         _ => None,
     }
@@ -364,6 +368,17 @@ impl PassboltMcp {
             id,
             pwned: breaches > 0,
             breaches,
+        }))
+    }
+
+    /// A new random password, saved nowhere.
+    #[tool(annotations(read_only_hint = true))]
+    async fn generate_password(
+        &self,
+        Parameters(args): Parameters<GeneratePassword>,
+    ) -> Result<Json<GeneratedPassword>, ToolError> {
+        Ok(Json(GeneratedPassword {
+            password: secrets::generate(&args)?,
         }))
     }
 
