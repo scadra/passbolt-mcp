@@ -36,14 +36,15 @@ could not be kept within `scope.folders`.
 
 ## Secrets
 
-Offered with `access.secrets = true`.
+Offered with `access.secrets = true`, within `scope.folders`. A secret goes to the agent and
+nowhere else: not to the logs, at any level, nor to the errors.
 
-| Tool | What |
-|---|---|
-| `get_secret` | one field of the secret of a resource (password, note…) |
-| `get_totp_code` | the current TOTP code of a resource, never its seed |
-| `check_password_pwned` | whether the password of a resource is in a known breach (HIBP, k-anonymity) |
-| `generate_password` | a new password, not saved |
+| Tool | Arguments | What |
+|---|---|---|
+| `get_secret` | `id`, `field` | one field of the secret: `password` by default, `description` (the note of a v5 resource), `pin_code`… An unknown field gets the names of those the secret has, never their values. |
+| `get_totp_code` | `id` | the current TOTP code and how long it stays valid; never the seed, which `get_secret` refuses too |
+| `check_password_pwned` | `id` | whether the password is in a known breach, and how many times: only the first five characters of its SHA-1 go to [Have I Been Pwned](https://haveibeenpwned.com/Passwords) |
+| `generate_password` | `length` (20; 8 to 128), `lowercase`, `uppercase`, `digits`, `symbols` | a random password, with at least one character of each class asked; saved nowhere |
 
 ## Writing
 

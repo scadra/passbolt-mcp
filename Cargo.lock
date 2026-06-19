@@ -1927,6 +1927,7 @@ dependencies = [
  "axum",
  "clap",
  "directories",
+ "rand 0.8.8",
  "rmcp",
  "schemars",
  "secrecy",

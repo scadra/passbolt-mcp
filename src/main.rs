@@ -54,11 +54,15 @@ enum Command {
 }
 
 /// Logs go to stderr: in stdio, stdout carries the MCP messages.
+///
+/// `rmcp` stays at `info`, whatever `PASSBOLT_MCP_LOG` asks: at `debug`, it logs the messages it
+/// sends, secrets included.
 fn init_logs() {
+    let filter = EnvFilter::try_from_env("PASSBOLT_MCP_LOG")
+        .unwrap_or_else(|_| EnvFilter::new("warn"))
+        .add_directive("rmcp=info".parse().expect("a directive"));
     tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_env("PASSBOLT_MCP_LOG").unwrap_or_else(|_| EnvFilter::new("warn")),
-        )
+        .with_env_filter(filter)
         .with_writer(std::io::stderr)
         .init();
 }

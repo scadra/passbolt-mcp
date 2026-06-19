@@ -14,6 +14,7 @@
 
 use std::sync::Arc;
 
+use passbolt_sdk::resource::get::get_totp_code;
 use passbolt_sdk::resource::list::list_resources;
 use passbolt_sdk::resource::view::ResourceView;
 use passbolt_sdk::types::Folder;
@@ -24,6 +25,8 @@ use rmcp::model::{Implementation, ServerCapabilities, ServerConfig};
 use rmcp::{tool, tool_handler, tool_router, Json, ServerHandler};
 use schemars::JsonSchema;
 use serde::Serialize;
+use serde_json::{Map, Value};
+use zeroize::Zeroizing;
 
 use crate::error::ToolError;
 use crate::page::Page;
@@ -34,6 +37,9 @@ use crate::read::{
 };
 use crate::rules::{Access, Rules};
 use crate::scope::{find_folder, folder_paths};
+use crate::secrets::{
+    self, GeneratePassword, GeneratedPassword, GetSecret, Pwned, SecretField, TotpCode,
+};
 use crate::session::{self, Session};
 
 const INSTRUCTIONS: &str = "Passbolt, the password manager of the team, through a Passbolt user \
@@ -73,6 +79,9 @@ fn needs(tool: &str) -> Option<Access> {
         | "list_comments"
         | "get_permissions"
         | "list_resource_types" => Some(Access::Read),
+        "get_secret" | "get_totp_code" | "check_password_pwned" | "generate_password" => {
+            Some(Access::Secrets)
+        }
         "search_aros" => Some(Access::Share),
         _ => None,
     }
@@ -320,6 +329,94 @@ impl PassboltMcp {
         Ok(Json(
             args.page.page(aros.iter().map(AroView::from).collect())?,
         ))
+    }
+
+    /// The decrypted secret of the resource `id`, if the agent can see it.
+    async fn secret_of(&self, id: &str) -> Result<Map<String, Value>, ToolError> {
+        let resource = self.resource_in_scope(id).await?;
+        let client = self.session.client().await;
+        let metadata = client.decrypt_resource_metadata(&resource).await?;
+        let text = client
+            .decrypt_resource_secret_text(&resource)
+            .await?
+            .map(Zeroizing::new);
+        let resource_types = client.resource_types().await?;
+        let view = ResourceView::new(resource, metadata, &resource_types)?;
+        let view = match &text {
+            Some(text) => view.with_secret(text)?,
+            None => view,
+        };
+        Ok(view.secret.unwrap_or_default())
+    }
+
+    /// Whether the password of a resource is in a known breach, by k-anonymity: only the first
+    /// five characters of its SHA-1 leave, to Have I Been Pwned.
+    #[tool(annotations(read_only_hint = true, open_world_hint = true))]
+    async fn check_password_pwned(
+        &self,
+        Parameters(ById { id }): Parameters<ById>,
+    ) -> Result<Json<Pwned>, ToolError> {
+        let secret = self.secret_of(&id).await?;
+        let password = Zeroizing::new(secrets::field(&secret, "password")?);
+        let breaches = self
+            .session
+            .client()
+            .await
+            .check_password_pwned(&password)
+            .await?;
+        Ok(Json(Pwned {
+            id,
+            pwned: breaches > 0,
+            breaches,
+        }))
+    }
+
+    /// A new random password, saved nowhere.
+    #[tool(annotations(read_only_hint = true))]
+    async fn generate_password(
+        &self,
+        Parameters(args): Parameters<GeneratePassword>,
+    ) -> Result<Json<GeneratedPassword>, ToolError> {
+        Ok(Json(GeneratedPassword {
+            password: secrets::generate(&args)?,
+        }))
+    }
+
+    /// One field of the secret of a resource: its password by default.
+    #[tool(annotations(read_only_hint = true))]
+    async fn get_secret(
+        &self,
+        Parameters(args): Parameters<GetSecret>,
+    ) -> Result<Json<SecretField>, ToolError> {
+        let secret = self.secret_of(&args.id).await?;
+        let field = args.field.unwrap_or_else(|| "password".into());
+        let value = secrets::field(&secret, &field)?;
+        Ok(Json(SecretField {
+            id: args.id,
+            field,
+            value,
+        }))
+    }
+
+    /// The current TOTP code of a resource; never its seed.
+    #[tool(annotations(read_only_hint = true))]
+    async fn get_totp_code(
+        &self,
+        Parameters(ById { id }): Parameters<ById>,
+    ) -> Result<Json<TotpCode>, ToolError> {
+        self.resource_in_scope(&id).await?;
+        let (code, seconds_remaining) = self
+            .session
+            .call(|client| {
+                let id = id.clone();
+                async move { get_totp_code(&client, &id).await }
+            })
+            .await?;
+        Ok(Json(TotpCode {
+            id,
+            code,
+            seconds_remaining,
+        }))
     }
 
     /// The Passbolt user this server acts as, and what its rules allow.

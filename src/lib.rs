@@ -19,6 +19,7 @@ pub mod passphrase;
 pub mod read;
 pub mod rules;
 pub mod scope;
+pub mod secrets;
 pub mod server;
 pub mod server_key;
 pub mod session;

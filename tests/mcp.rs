@@ -142,3 +142,97 @@ async fn comments() {
     assert!(found["author"].as_str().unwrap().contains('@'));
     client.cancel().await.unwrap();
 }
+
+/// The e2e configuration with `[access]` added, next to it so that its relative paths hold.
+struct ConfigWith(std::path::PathBuf);
+
+impl ConfigWith {
+    fn new(access: &str) -> Self {
+        let original = Path::new(&config_path()).to_path_buf();
+        let path = original.with_file_name(format!("e2e-{}.toml", std::process::id()));
+        let text = std::fs::read_to_string(&original).unwrap();
+        std::fs::write(&path, format!("{text}\n[access]\n{access}\n")).unwrap();
+        Self(path)
+    }
+}
+
+impl Drop for ConfigWith {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+#[tokio::test]
+#[ignore = "needs a Passbolt server"]
+async fn no_secrets_by_default() {
+    let client = client().await;
+    let tools = client.list_all_tools().await.unwrap();
+    for tool in [
+        "get_secret",
+        "get_totp_code",
+        "check_password_pwned",
+        "generate_password",
+    ] {
+        assert!(!tools.iter().any(|found| found.name == tool), "{tool}");
+    }
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a Passbolt server"]
+async fn secrets_stay_out_of_the_logs() {
+    let config = ConfigWith::new("secrets = true");
+    let command =
+        tokio::process::Command::new(env!("CARGO_BIN_EXE_passbolt-mcp")).configure(|command| {
+            command
+                .args(["--config", config.0.to_str().unwrap(), "serve"])
+                .env("PASSBOLT_MCP_LOG", "trace");
+        });
+    let (transport, stderr) = TokioChildProcess::builder(command)
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stderr = stderr.unwrap();
+    let logs = tokio::spawn(async move {
+        let mut logs = String::new();
+        tokio::io::AsyncReadExt::read_to_string(&mut stderr, &mut logs)
+            .await
+            .unwrap();
+        logs
+    });
+    let client = ().serve(transport).await.unwrap();
+
+    let generated = call(&client, "generate_password", json!({ "length": 24 })).await;
+    let password = generated["password"].as_str().unwrap().to_string();
+    assert_eq!(password.len(), 24);
+    let page = call(&client, "list_resources", json!({ "limit": 50 })).await;
+    let mut secret = None;
+    for item in page["items"].as_array().unwrap() {
+        let result = client
+            .call_tool(
+                CallToolRequestParams::new("get_secret")
+                    .with_arguments(json!({ "id": item["id"] }).as_object().unwrap().clone()),
+            )
+            .await
+            .unwrap();
+        if result.is_error == Some(false) {
+            secret = Some(
+                result.structured_content.unwrap()["value"]
+                    .as_str()
+                    .unwrap()
+                    .to_string(),
+            );
+            break;
+        }
+    }
+    let secret = secret.expect("a resource with a password");
+    client.cancel().await.unwrap();
+
+    let logs = logs.await.unwrap();
+    assert!(logs.lines().count() > 10, "trace logs");
+    assert!(!logs.contains(&secret), "the secret is in the logs");
+    assert!(
+        !logs.contains(&password),
+        "the generated password is in the logs"
+    );
+}
