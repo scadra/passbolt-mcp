@@ -17,6 +17,7 @@ use std::sync::Arc;
 use passbolt_sdk::resource::create::{create_resource, NewResource};
 use passbolt_sdk::resource::get::get_totp_code;
 use passbolt_sdk::resource::list::list_resources;
+use passbolt_sdk::resource::update::{update_resource, ResourceChanges};
 use passbolt_sdk::resource::view::ResourceView;
 use passbolt_sdk::types::Folder;
 use passbolt_sdk::{build_folder_tree, FolderQuery, GroupQuery, ResourceQuery, UserQuery};
@@ -42,7 +43,7 @@ use crate::secrets::{
     self, GeneratePassword, GeneratedPassword, GetSecret, Pwned, SecretField, TotpCode,
 };
 use crate::session::{self, Session};
-use crate::write::{CreateResource, Place, WriteResult};
+use crate::write::{CreateResource, Place, UpdateResource, WriteResult};
 
 const INSTRUCTIONS: &str = "Passbolt, the password manager of the team, through a Passbolt user \
      of your own: you see only what is shared with it, and do only what the rules of this server \
@@ -84,7 +85,7 @@ fn needs(tool: &str) -> Option<Access> {
         "get_secret" | "get_totp_code" | "check_password_pwned" | "generate_password" => {
             Some(Access::Secrets)
         }
-        "create_resource" => Some(Access::Write),
+        "create_resource" | "update_resource" => Some(Access::Write),
         "search_aros" => Some(Access::Share),
         _ => None,
     }
@@ -472,6 +473,72 @@ impl PassboltMcp {
             })
             .await?;
         Ok(Json(WriteResult::new(false, action, Some(created.id))))
+    }
+
+    /// The resource `id` with its name, if the agent can see it and the MCP user has at least
+    /// `needed` (7: update, 15: owner) on it.
+    async fn resource_with(
+        &self,
+        id: &str,
+        needed: i32,
+    ) -> Result<(passbolt_sdk::types::Resource, String), ToolError> {
+        let resource = self.resource_in_scope(id).await?;
+        let client = self.session.client().await;
+        let metadata = client.decrypt_resource_metadata(&resource).await?;
+        let resource_types = client.resource_types().await?;
+        let name = ResourceView::new(resource.clone(), metadata, &resource_types)?.name;
+        let permission = resource
+            .permission
+            .as_ref()
+            .and_then(|permission| permission.permission_type)
+            .unwrap_or_default();
+        if permission < needed {
+            return Err(ToolError::forbidden(format!(
+                "the MCP user has {} on {name}, {} is needed",
+                crate::read::permission_name(permission),
+                crate::read::permission_name(needed)
+            )));
+        }
+        Ok((resource, name))
+    }
+
+    /// Change the fields given of a resource; a new secret is encrypted for everyone with access.
+    #[tool(annotations(read_only_hint = false, destructive_hint = false))]
+    async fn update_resource(
+        &self,
+        Parameters(args): Parameters<UpdateResource>,
+    ) -> Result<Json<WriteResult>, ToolError> {
+        let changed = args.changed();
+        if changed.is_empty() {
+            return Err(ToolError::invalid_argument("nothing to change".into()));
+        }
+        let (_, name) = self.resource_with(&args.id, 7).await?;
+        let action = format!("change the {} of the resource {name}", changed.join(", "));
+        if args.dry_run {
+            return Ok(Json(WriteResult::new(true, action, Some(args.id))));
+        }
+        let changes = ResourceChanges {
+            name: args.name,
+            username: args.username,
+            uris: args.uris,
+            description: args.description,
+            note: args.note,
+            password: args.password,
+            expired: if args.clear_expiry {
+                Some(None)
+            } else {
+                args.expiry.map(Some)
+            },
+            ..ResourceChanges::default()
+        };
+        let id = args.id.as_str();
+        self.session
+            .call(|client| {
+                let changes = changes.clone();
+                async move { update_resource(&client, id, &changes).await }
+            })
+            .await?;
+        Ok(Json(WriteResult::new(false, action, Some(args.id.clone()))))
     }
 
     /// The Passbolt user this server acts as, and what its rules allow.

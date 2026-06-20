@@ -66,6 +66,45 @@ pub struct CreateResource {
     pub dry_run: bool,
 }
 
+/// `update_resource`: the fields given change, the others stay.
+#[derive(Debug, Default, Deserialize, JsonSchema)]
+pub struct UpdateResource {
+    pub id: String,
+    pub name: Option<String>,
+    pub username: Option<String>,
+    pub uris: Option<Vec<String>>,
+    pub description: Option<String>,
+    /// The new password: encrypted again for everyone with access.
+    pub password: Option<String>,
+    pub note: Option<String>,
+    /// Expiry of the password, RFC 3339.
+    pub expiry: Option<String>,
+    /// Remove the expiry.
+    #[serde(default)]
+    pub clear_expiry: bool,
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+impl UpdateResource {
+    /// The names of the fields that change, never their values.
+    #[must_use]
+    pub fn changed(&self) -> Vec<&'static str> {
+        [
+            ("name", self.name.is_some()),
+            ("username", self.username.is_some()),
+            ("uris", self.uris.is_some()),
+            ("description", self.description.is_some()),
+            ("password", self.password.is_some()),
+            ("note", self.note.is_some()),
+            ("expiry", self.expiry.is_some() || self.clear_expiry),
+        ]
+        .into_iter()
+        .filter_map(|(field, changed)| changed.then_some(field))
+        .collect()
+    }
+}
+
 /// Where a folder argument points: its path for the messages, its id for Passbolt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Place {
@@ -86,6 +125,16 @@ impl Place {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn changed_fields() {
+        let update = UpdateResource {
+            password: Some("s3cret".into()),
+            clear_expiry: true,
+            ..UpdateResource::default()
+        };
+        assert_eq!(update.changed(), ["password", "expiry"]);
+    }
 
     #[test]
     fn dry_run_says_would() {
