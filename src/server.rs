@@ -14,6 +14,7 @@
 
 use std::sync::Arc;
 
+use passbolt_sdk::resource::create::{create_resource, NewResource};
 use passbolt_sdk::resource::get::get_totp_code;
 use passbolt_sdk::resource::list::list_resources;
 use passbolt_sdk::resource::view::ResourceView;
@@ -41,6 +42,7 @@ use crate::secrets::{
     self, GeneratePassword, GeneratedPassword, GetSecret, Pwned, SecretField, TotpCode,
 };
 use crate::session::{self, Session};
+use crate::write::{CreateResource, Place, WriteResult};
 
 const INSTRUCTIONS: &str = "Passbolt, the password manager of the team, through a Passbolt user \
      of your own: you see only what is shared with it, and do only what the rules of this server \
@@ -82,6 +84,7 @@ fn needs(tool: &str) -> Option<Access> {
         "get_secret" | "get_totp_code" | "check_password_pwned" | "generate_password" => {
             Some(Access::Secrets)
         }
+        "create_resource" => Some(Access::Write),
         "search_aros" => Some(Access::Share),
         _ => None,
     }
@@ -417,6 +420,58 @@ impl PassboltMcp {
             code,
             seconds_remaining,
         }))
+    }
+
+    /// The folder `entry` names (by path or id), or the root when absent, if the agent may act there.
+    async fn place(&self, entry: Option<&str>) -> Result<Place, ToolError> {
+        let Some(entry) = entry else {
+            self.rules.reaches(None)?;
+            return Ok(Place::root());
+        };
+        let folders = self.all_folders().await?;
+        let folder = find_folder(entry, &folders)
+            .map_err(|error| ToolError::invalid_argument(error.to_string()))?;
+        self.rules.reaches(Some(&folder.id))?;
+        Ok(Place {
+            id: Some(folder.id.clone()),
+            name: folder_paths(&folders)
+                .remove(&folder.id)
+                .unwrap_or_else(|| folder.name.clone()),
+        })
+    }
+
+    /// Create a resource, its secret encrypted for the MCP user; in a folder, it gets the
+    /// permissions of the folder.
+    #[tool(annotations(read_only_hint = false, destructive_hint = false))]
+    async fn create_resource(
+        &self,
+        Parameters(args): Parameters<CreateResource>,
+    ) -> Result<Json<WriteResult>, ToolError> {
+        let place = self.place(args.folder.as_deref()).await?;
+        let action = format!("create the resource {} in {}", args.name, place.name);
+        if args.dry_run {
+            return Ok(Json(WriteResult::new(true, action, None)));
+        }
+        let new_resource = NewResource {
+            resource_type: args.resource_type,
+            name: args.name,
+            username: args.username,
+            uris: args.uris,
+            description: args.description,
+            note: args.note,
+            password: args.password,
+            folder_parent_id: place.id,
+            expired: args.expiry,
+            ..NewResource::default()
+        };
+        let created = self
+            .session
+            .call(|client| {
+                let new_resource = new_resource.clone();
+                async move { create_resource(&client, &new_resource).await }
+            })
+            .await?;
+        Ok(Json(WriteResult::new(false, action, Some(created.id))))
     }
 
     /// The Passbolt user this server acts as, and what its rules allow.
