@@ -113,6 +113,16 @@ pub struct DeleteResource {
     pub dry_run: bool,
 }
 
+/// `move_resource`.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct MoveResource {
+    pub id: String,
+    /// The folder to move it to, by path or id; the root when absent.
+    pub folder: Option<String>,
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
 /// Where a folder argument points: its path for the messages, its id for Passbolt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Place {
