@@ -105,6 +105,14 @@ impl UpdateResource {
     }
 }
 
+/// `delete_resource`.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct DeleteResource {
+    pub id: String,
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
 /// Where a folder argument points: its path for the messages, its id for Passbolt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Place {

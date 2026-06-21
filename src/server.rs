@@ -43,7 +43,7 @@ use crate::secrets::{
     self, GeneratePassword, GeneratedPassword, GetSecret, Pwned, SecretField, TotpCode,
 };
 use crate::session::{self, Session};
-use crate::write::{CreateResource, Place, UpdateResource, WriteResult};
+use crate::write::{CreateResource, DeleteResource, Place, UpdateResource, WriteResult};
 
 const INSTRUCTIONS: &str = "Passbolt, the password manager of the team, through a Passbolt user \
      of your own: you see only what is shared with it, and do only what the rules of this server \
@@ -85,7 +85,7 @@ fn needs(tool: &str) -> Option<Access> {
         "get_secret" | "get_totp_code" | "check_password_pwned" | "generate_password" => {
             Some(Access::Secrets)
         }
-        "create_resource" | "update_resource" => Some(Access::Write),
+        "create_resource" | "update_resource" | "delete_resource" => Some(Access::Write),
         "search_aros" => Some(Access::Share),
         _ => None,
     }
@@ -539,6 +539,27 @@ impl PassboltMcp {
             })
             .await?;
         Ok(Json(WriteResult::new(false, action, Some(args.id.clone()))))
+    }
+
+    /// Delete a resource, for everyone it is shared with. Try it with `dry_run` first.
+    #[tool(annotations(read_only_hint = false, destructive_hint = true))]
+    async fn delete_resource(
+        &self,
+        Parameters(args): Parameters<DeleteResource>,
+    ) -> Result<Json<WriteResult>, ToolError> {
+        let (_, name) = self.resource_with(&args.id, 7).await?;
+        let action = format!("delete the resource {name}, for everyone it is shared with");
+        if !args.dry_run {
+            let id = args.id.as_str();
+            self.session
+                .call(|client| async move { client.delete_resource(id).await })
+                .await?;
+        }
+        Ok(Json(WriteResult::new(
+            args.dry_run,
+            action,
+            Some(args.id.clone()),
+        )))
     }
 
     /// The Passbolt user this server acts as, and what its rules allow.
