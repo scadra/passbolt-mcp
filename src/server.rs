@@ -14,12 +14,13 @@
 
 use std::sync::Arc;
 
+use passbolt_sdk::folder::create::create_folder;
 use passbolt_sdk::resource::create::{create_resource, NewResource};
 use passbolt_sdk::resource::get::get_totp_code;
 use passbolt_sdk::resource::list::list_resources;
 use passbolt_sdk::resource::update::{update_resource, ResourceChanges};
 use passbolt_sdk::resource::view::ResourceView;
-use passbolt_sdk::types::Folder;
+use passbolt_sdk::types::{Folder, UpdateFolderPayload};
 use passbolt_sdk::{build_folder_tree, FolderQuery, GroupQuery, ResourceQuery, UserQuery};
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
@@ -44,7 +45,8 @@ use crate::secrets::{
 };
 use crate::session::{self, Session};
 use crate::write::{
-    CreateResource, DeleteResource, MoveResource, Place, UpdateResource, WriteResult,
+    CreateFolder, CreateResource, DeleteResource, MoveResource, Place, RenameFolder,
+    UpdateResource, WriteResult,
 };
 
 const INSTRUCTIONS: &str = "Passbolt, the password manager of the team, through a Passbolt user \
@@ -87,9 +89,8 @@ fn needs(tool: &str) -> Option<Access> {
         "get_secret" | "get_totp_code" | "check_password_pwned" | "generate_password" => {
             Some(Access::Secrets)
         }
-        "create_resource" | "update_resource" | "delete_resource" | "move_resource" => {
-            Some(Access::Write)
-        }
+        "create_resource" | "update_resource" | "delete_resource" | "move_resource"
+        | "create_folder" | "rename_folder" => Some(Access::Write),
         "search_aros" => Some(Access::Share),
         _ => None,
     }
@@ -585,6 +586,76 @@ impl PassboltMcp {
             args.dry_run,
             action,
             Some(args.id.clone()),
+        )))
+    }
+
+    /// The folder `entry` names, with its path, if the agent may act there and the MCP user has
+    /// at least `needed` (7: update, 15: owner) on it.
+    async fn folder_with(&self, entry: &str, needed: i32) -> Result<(Folder, String), ToolError> {
+        let folders = self.all_folders().await?;
+        let folder = find_folder(entry, &folders)
+            .map_err(|error| ToolError::invalid_argument(error.to_string()))?
+            .clone();
+        self.rules.reaches(Some(&folder.id))?;
+        let path = folder_paths(&folders)
+            .remove(&folder.id)
+            .unwrap_or_else(|| folder.name.clone());
+        let permission = folder
+            .permission
+            .as_ref()
+            .and_then(|permission| permission.permission_type)
+            .unwrap_or_default();
+        if permission < needed {
+            return Err(ToolError::forbidden(format!(
+                "the MCP user has {} on the folder {path}, {} is needed",
+                crate::read::permission_name(permission),
+                crate::read::permission_name(needed)
+            )));
+        }
+        Ok((folder, path))
+    }
+
+    /// Create a folder; in a parent folder, it gets the permissions of the parent.
+    #[tool(annotations(read_only_hint = false, destructive_hint = false))]
+    async fn create_folder(
+        &self,
+        Parameters(args): Parameters<CreateFolder>,
+    ) -> Result<Json<WriteResult>, ToolError> {
+        let place = self.place(args.parent.as_deref()).await?;
+        let action = format!("create the folder {} in {}", args.name, place.name);
+        if args.dry_run {
+            return Ok(Json(WriteResult::new(true, action, None)));
+        }
+        let (name, parent) = (args.name.as_str(), place.id.as_deref());
+        let created = self
+            .session
+            .call(|client| async move { create_folder(&client, name, parent).await })
+            .await?;
+        Ok(Json(WriteResult::new(false, action, Some(created.id))))
+    }
+
+    /// Rename a folder.
+    #[tool(annotations(read_only_hint = false, destructive_hint = false))]
+    async fn rename_folder(
+        &self,
+        Parameters(args): Parameters<RenameFolder>,
+    ) -> Result<Json<WriteResult>, ToolError> {
+        let (folder, path) = self.folder_with(&args.folder, 7).await?;
+        let action = format!("rename the folder {path} to {}", args.name);
+        if !args.dry_run {
+            let (id, name) = (folder.id.as_str(), args.name.as_str());
+            self.session
+                .call(|client| async move {
+                    client
+                        .update_folder(id, &UpdateFolderPayload { name: name.into() })
+                        .await
+                })
+                .await?;
+        }
+        Ok(Json(WriteResult::new(
+            args.dry_run,
+            action,
+            Some(folder.id),
         )))
     }
 

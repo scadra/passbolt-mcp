@@ -123,6 +123,26 @@ pub struct MoveResource {
     pub dry_run: bool,
 }
 
+/// `create_folder`.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct CreateFolder {
+    pub name: String,
+    /// The folder to create it in, by path or id; the root when absent.
+    pub parent: Option<String>,
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+/// `rename_folder`.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct RenameFolder {
+    /// The folder, by path or id.
+    pub folder: String,
+    pub name: String,
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
 /// Where a folder argument points: its path for the messages, its id for Passbolt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Place {
