@@ -143,6 +143,30 @@ pub struct RenameFolder {
     pub dry_run: bool,
 }
 
+/// `move_folder`.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct MoveFolder {
+    /// The folder, by path or id.
+    pub folder: String,
+    /// The folder to move it into, by path or id; the root when absent.
+    pub parent: Option<String>,
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+/// `delete_folder`.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct DeleteFolder {
+    /// The folder, by path or id.
+    pub folder: String,
+    /// Also delete its subfolders and the resources the MCP user may delete in them; otherwise
+    /// they move up to the parent.
+    #[serde(default)]
+    pub with_content: bool,
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
 /// Where a folder argument points: its path for the messages, its id for Passbolt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Place {

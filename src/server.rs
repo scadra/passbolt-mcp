@@ -45,8 +45,8 @@ use crate::secrets::{
 };
 use crate::session::{self, Session};
 use crate::write::{
-    CreateFolder, CreateResource, DeleteResource, MoveResource, Place, RenameFolder,
-    UpdateResource, WriteResult,
+    CreateFolder, CreateResource, DeleteFolder, DeleteResource, MoveFolder, MoveResource, Place,
+    RenameFolder, UpdateResource, WriteResult,
 };
 
 const INSTRUCTIONS: &str = "Passbolt, the password manager of the team, through a Passbolt user \
@@ -90,7 +90,9 @@ fn needs(tool: &str) -> Option<Access> {
             Some(Access::Secrets)
         }
         "create_resource" | "update_resource" | "delete_resource" | "move_resource"
-        | "create_folder" | "rename_folder" => Some(Access::Write),
+        | "create_folder" | "rename_folder" | "move_folder" | "delete_folder" => {
+            Some(Access::Write)
+        }
         "search_aros" => Some(Access::Share),
         _ => None,
     }
@@ -649,6 +651,66 @@ impl PassboltMcp {
                     client
                         .update_folder(id, &UpdateFolderPayload { name: name.into() })
                         .await
+                })
+                .await?;
+        }
+        Ok(Json(WriteResult::new(
+            args.dry_run,
+            action,
+            Some(folder.id),
+        )))
+    }
+
+    /// Move a folder, with its content, into another folder of the scope.
+    #[tool(annotations(read_only_hint = false, destructive_hint = false))]
+    async fn move_folder(
+        &self,
+        Parameters(args): Parameters<MoveFolder>,
+    ) -> Result<Json<WriteResult>, ToolError> {
+        let (folder, path) = self.folder_with(&args.folder, 7).await?;
+        let place = self.place(args.parent.as_deref()).await?;
+        if place.id.as_deref() == Some(folder.id.as_str()) {
+            return Err(ToolError::invalid_argument(
+                "a folder cannot move into itself".into(),
+            ));
+        }
+        let action = format!("move the folder {path} to {}", place.name);
+        if !args.dry_run {
+            let (id, parent) = (folder.id.as_str(), place.id.as_deref());
+            self.session
+                .call(|client| async move { client.move_folder(id, parent).await })
+                .await?;
+        }
+        Ok(Json(WriteResult::new(
+            args.dry_run,
+            action,
+            Some(folder.id),
+        )))
+    }
+
+    /// Delete a folder, for everyone it is shared with; with `with_content`, its subfolders and
+    /// resources too. Try it with `dry_run` first.
+    #[tool(annotations(read_only_hint = false, destructive_hint = true))]
+    async fn delete_folder(
+        &self,
+        Parameters(args): Parameters<DeleteFolder>,
+    ) -> Result<Json<WriteResult>, ToolError> {
+        let (folder, path) = self.folder_with(&args.folder, 7).await?;
+        let action = if args.with_content {
+            format!("delete the folder {path}, its subfolders and their resources")
+        } else {
+            format!("delete the folder {path}; its content moves up to its parent")
+        };
+        if !args.dry_run {
+            let id = folder.id.as_str();
+            let with_content = args.with_content;
+            self.session
+                .call(|client| async move {
+                    if with_content {
+                        client.delete_folder_with_content(id).await
+                    } else {
+                        client.delete_folder(id).await
+                    }
                 })
                 .await?;
         }
