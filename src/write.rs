@@ -167,6 +167,17 @@ pub struct DeleteFolder {
     pub dry_run: bool,
 }
 
+/// `set_favorite`.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct SetFavorite {
+    /// The id of the resource.
+    pub id: String,
+    /// `true` to mark it, `false` to unmark it.
+    pub favorite: bool,
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
 /// Where a folder argument points: its path for the messages, its id for Passbolt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Place {

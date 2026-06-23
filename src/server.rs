@@ -46,7 +46,7 @@ use crate::secrets::{
 use crate::session::{self, Session};
 use crate::write::{
     CreateFolder, CreateResource, DeleteFolder, DeleteResource, MoveFolder, MoveResource, Place,
-    RenameFolder, UpdateResource, WriteResult,
+    RenameFolder, SetFavorite, UpdateResource, WriteResult,
 };
 
 const INSTRUCTIONS: &str = "Passbolt, the password manager of the team, through a Passbolt user \
@@ -90,7 +90,7 @@ fn needs(tool: &str) -> Option<Access> {
             Some(Access::Secrets)
         }
         "create_resource" | "update_resource" | "delete_resource" | "move_resource"
-        | "create_folder" | "rename_folder" | "move_folder" | "delete_folder" => {
+        | "create_folder" | "rename_folder" | "move_folder" | "delete_folder" | "set_favorite" => {
             Some(Access::Write)
         }
         "search_aros" => Some(Access::Share),
@@ -185,7 +185,71 @@ impl PassboltMcp {
         let resource_types = client.resource_types().await?;
         let view = ResourceView::new(resource, metadata, &resource_types)?;
         let paths = folder_paths(&self.all_folders().await?);
-        Ok(Json(ResourceDetails::new(&view, &paths)))
+        let mut details = ResourceDetails::new(&view, &paths);
+        // A single resource comes without its favorite.
+        details.summary.favorite = self.favorite_of(&id).await?.is_some();
+        Ok(Json(details))
+    }
+
+    /// The id of the favorite the MCP user has on the resource `id`, if any.
+    async fn favorite_of(&self, id: &str) -> Result<Option<String>, ToolError> {
+        let favorites = self
+            .session
+            .call(|client| async move {
+                client
+                    .get_resources(ResourceQuery {
+                        favorites_only: true,
+                        ..ResourceQuery::default()
+                    })
+                    .await
+            })
+            .await?;
+        Ok(favorites
+            .into_iter()
+            .find(|resource| resource.id == id)
+            .and_then(|resource| resource.favorite)
+            .and_then(|favorite| favorite.id))
+    }
+
+    /// Mark a resource as a favorite of the MCP user, or unmark it.
+    #[tool(annotations(
+        read_only_hint = false,
+        destructive_hint = false,
+        idempotent_hint = true
+    ))]
+    async fn set_favorite(
+        &self,
+        Parameters(args): Parameters<SetFavorite>,
+    ) -> Result<Json<WriteResult>, ToolError> {
+        let (_, name) = self.resource_with(&args.id, 1).await?;
+        let favorite = self.favorite_of(&args.id).await?;
+        let action = match (args.favorite, &favorite) {
+            (true, Some(_)) => format!("leave {name} a favorite: it is one"),
+            (false, None) => format!("leave {name} out of the favorites: it is not one"),
+            (true, None) => format!("mark {name} as a favorite"),
+            (false, Some(_)) => format!("remove {name} from the favorites"),
+        };
+        if !args.dry_run {
+            let id = args.id.as_str();
+            match (args.favorite, favorite.as_deref()) {
+                (true, None) => {
+                    self.session
+                        .call(|client| async move { client.add_favorite(id).await })
+                        .await?;
+                }
+                (false, Some(favorite)) => {
+                    self.session
+                        .call(|client| async move { client.remove_favorite(favorite).await })
+                        .await?;
+                }
+                _ => {}
+            }
+        }
+        Ok(Json(WriteResult::new(
+            args.dry_run,
+            action,
+            Some(args.id.clone()),
+        )))
     }
 
     /// The folders the agent can see, with their paths.
