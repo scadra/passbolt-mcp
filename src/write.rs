@@ -178,6 +178,29 @@ pub struct SetFavorite {
     pub dry_run: bool,
 }
 
+/// `add_comment`.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct AddComment {
+    /// The id of the resource.
+    pub id: String,
+    pub content: String,
+    /// The comment it answers.
+    pub parent_id: Option<String>,
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+/// `delete_comment`: a comment of the MCP user.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct DeleteComment {
+    /// The id of the resource.
+    pub id: String,
+    /// The id of the comment, from `list_comments`.
+    pub comment_id: String,
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
 /// Where a folder argument points: its path for the messages, its id for Passbolt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Place {

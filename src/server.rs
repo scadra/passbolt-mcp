@@ -45,8 +45,8 @@ use crate::secrets::{
 };
 use crate::session::{self, Session};
 use crate::write::{
-    CreateFolder, CreateResource, DeleteFolder, DeleteResource, MoveFolder, MoveResource, Place,
-    RenameFolder, SetFavorite, UpdateResource, WriteResult,
+    AddComment, CreateFolder, CreateResource, DeleteComment, DeleteFolder, DeleteResource,
+    MoveFolder, MoveResource, Place, RenameFolder, SetFavorite, UpdateResource, WriteResult,
 };
 
 const INSTRUCTIONS: &str = "Passbolt, the password manager of the team, through a Passbolt user \
@@ -90,9 +90,8 @@ fn needs(tool: &str) -> Option<Access> {
             Some(Access::Secrets)
         }
         "create_resource" | "update_resource" | "delete_resource" | "move_resource"
-        | "create_folder" | "rename_folder" | "move_folder" | "delete_folder" | "set_favorite" => {
-            Some(Access::Write)
-        }
+        | "create_folder" | "rename_folder" | "move_folder" | "delete_folder" | "set_favorite"
+        | "add_comment" | "delete_comment" => Some(Access::Write),
         "search_aros" => Some(Access::Share),
         _ => None,
     }
@@ -782,6 +781,61 @@ impl PassboltMcp {
             args.dry_run,
             action,
             Some(folder.id),
+        )))
+    }
+
+    /// Comment on a resource, as the MCP user.
+    #[tool(annotations(read_only_hint = false, destructive_hint = false))]
+    async fn add_comment(
+        &self,
+        Parameters(args): Parameters<AddComment>,
+    ) -> Result<Json<WriteResult>, ToolError> {
+        let (_, name) = self.resource_with(&args.id, 1).await?;
+        let action = format!("comment on the resource {name}");
+        if args.dry_run {
+            return Ok(Json(WriteResult::new(true, action, None)));
+        }
+        let (id, content, parent) = (
+            args.id.as_str(),
+            args.content.as_str(),
+            args.parent_id.as_deref(),
+        );
+        let comment = self
+            .session
+            .call(|client| async move { client.create_comment(id, content, parent).await })
+            .await?;
+        Ok(Json(WriteResult::new(false, action, Some(comment.id))))
+    }
+
+    /// Delete a comment the MCP user wrote on a resource.
+    #[tool(annotations(read_only_hint = false, destructive_hint = true))]
+    async fn delete_comment(
+        &self,
+        Parameters(args): Parameters<DeleteComment>,
+    ) -> Result<Json<WriteResult>, ToolError> {
+        let (_, name) = self.resource_with(&args.id, 1).await?;
+        let id = args.id.as_str();
+        let comments = self
+            .session
+            .call(|client| async move { client.get_comments(id).await })
+            .await?;
+        if !comments.iter().any(|comment| comment.id == args.comment_id) {
+            return Err(ToolError::invalid_argument(format!(
+                "the resource {name} has no comment {}",
+                args.comment_id
+            )));
+        }
+        let action = format!("delete a comment on the resource {name}");
+        if !args.dry_run {
+            let comment = args.comment_id.as_str();
+            self.session
+                .call(|client| async move { client.delete_comment(comment).await })
+                .await?;
+        }
+        Ok(Json(WriteResult::new(
+            args.dry_run,
+            action,
+            Some(args.comment_id.clone()),
         )))
     }
 
