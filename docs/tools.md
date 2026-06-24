@@ -48,17 +48,27 @@ nowhere else: not to the logs, at any level, nor to the errors.
 
 ## Writing
 
-Offered with `access.write = true`. Every one takes `dry_run`.
+Offered with `access.write = true`, within `scope.folders`. Every write takes `dry_run`: it then
+says what it would do (`"would delete the resource Staging DB…"`) and does nothing. A write the
+permission of the MCP user does not allow is refused before reaching Passbolt (`forbidden`):
+changing, moving or deleting needs **update**, commenting **read**. Messages name the fields that
+change, never their values.
 
-| Tool | What |
-|---|---|
-| `create_resource` | a resource, in a folder of the scope |
-| `update_resource` | its metadata, its secret, or both |
-| `delete_resource` | delete a resource (destructive) |
-| `move_resource` | into another folder of the scope |
-| `create_folder`, `update_folder`, `move_folder`, `delete_folder` | folders |
-| `add_favorite`, `remove_favorite` | favorites of the MCP user |
-| `add_comment`, `delete_comment` | comments |
+| Tool | Arguments | What |
+|---|---|---|
+| `create_resource` | `name`, `username`, `uris`, `description`, `password`, `note`, `folder`, `resource_type`, `expiry` | a resource, its secret encrypted for the MCP user; in a folder, it gets the permissions of the folder |
+| `update_resource` | `id` and the fields to change, `clear_expiry` | the fields given; a new secret is encrypted for everyone with access |
+| `delete_resource` | `id` | deletes it for everyone (destructive) |
+| `move_resource` | `id`, `folder` (the root when absent) | into another folder of the scope |
+| `create_folder` | `name`, `parent` | a folder; in a parent, it gets the permissions of the parent |
+| `rename_folder` | `folder`, `name` | |
+| `move_folder` | `folder`, `parent` | with its content |
+| `delete_folder` | `folder`, `with_content` | without `with_content`, its content moves up to its parent (destructive) |
+| `set_favorite` | `id`, `favorite` | mark or unmark a favorite of the MCP user |
+| `add_comment` | `id`, `content`, `parent_id` | a comment, by the MCP user |
+| `delete_comment` | `id`, `comment_id` | a comment of the MCP user (destructive) |
+
+The destructive tools say so to the client, which can ask the person before calling them.
 
 ## Sharing
 
