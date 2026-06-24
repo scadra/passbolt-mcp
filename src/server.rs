@@ -14,10 +14,13 @@
 
 use std::sync::Arc;
 
+use passbolt_sdk::folder::create::create_folder;
+use passbolt_sdk::resource::create::{create_resource, NewResource};
 use passbolt_sdk::resource::get::get_totp_code;
 use passbolt_sdk::resource::list::list_resources;
+use passbolt_sdk::resource::update::{update_resource, ResourceChanges};
 use passbolt_sdk::resource::view::ResourceView;
-use passbolt_sdk::types::Folder;
+use passbolt_sdk::types::{Folder, UpdateFolderPayload};
 use passbolt_sdk::{build_folder_tree, FolderQuery, GroupQuery, ResourceQuery, UserQuery};
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
@@ -41,6 +44,10 @@ use crate::secrets::{
     self, GeneratePassword, GeneratedPassword, GetSecret, Pwned, SecretField, TotpCode,
 };
 use crate::session::{self, Session};
+use crate::write::{
+    AddComment, CreateFolder, CreateResource, DeleteComment, DeleteFolder, DeleteResource,
+    MoveFolder, MoveResource, Place, RenameFolder, SetFavorite, UpdateResource, WriteResult,
+};
 
 const INSTRUCTIONS: &str = "Passbolt, the password manager of the team, through a Passbolt user \
      of your own: you see only what is shared with it, and do only what the rules of this server \
@@ -82,6 +89,9 @@ fn needs(tool: &str) -> Option<Access> {
         "get_secret" | "get_totp_code" | "check_password_pwned" | "generate_password" => {
             Some(Access::Secrets)
         }
+        "create_resource" | "update_resource" | "delete_resource" | "move_resource"
+        | "create_folder" | "rename_folder" | "move_folder" | "delete_folder" | "set_favorite"
+        | "add_comment" | "delete_comment" => Some(Access::Write),
         "search_aros" => Some(Access::Share),
         _ => None,
     }
@@ -174,7 +184,71 @@ impl PassboltMcp {
         let resource_types = client.resource_types().await?;
         let view = ResourceView::new(resource, metadata, &resource_types)?;
         let paths = folder_paths(&self.all_folders().await?);
-        Ok(Json(ResourceDetails::new(&view, &paths)))
+        let mut details = ResourceDetails::new(&view, &paths);
+        // A single resource comes without its favorite.
+        details.summary.favorite = self.favorite_of(&id).await?.is_some();
+        Ok(Json(details))
+    }
+
+    /// The id of the favorite the MCP user has on the resource `id`, if any.
+    async fn favorite_of(&self, id: &str) -> Result<Option<String>, ToolError> {
+        let favorites = self
+            .session
+            .call(|client| async move {
+                client
+                    .get_resources(ResourceQuery {
+                        favorites_only: true,
+                        ..ResourceQuery::default()
+                    })
+                    .await
+            })
+            .await?;
+        Ok(favorites
+            .into_iter()
+            .find(|resource| resource.id == id)
+            .and_then(|resource| resource.favorite)
+            .and_then(|favorite| favorite.id))
+    }
+
+    /// Mark a resource as a favorite of the MCP user, or unmark it.
+    #[tool(annotations(
+        read_only_hint = false,
+        destructive_hint = false,
+        idempotent_hint = true
+    ))]
+    async fn set_favorite(
+        &self,
+        Parameters(args): Parameters<SetFavorite>,
+    ) -> Result<Json<WriteResult>, ToolError> {
+        let (_, name) = self.resource_with(&args.id, 1).await?;
+        let favorite = self.favorite_of(&args.id).await?;
+        let action = match (args.favorite, &favorite) {
+            (true, Some(_)) => format!("leave {name} a favorite: it is one"),
+            (false, None) => format!("leave {name} out of the favorites: it is not one"),
+            (true, None) => format!("mark {name} as a favorite"),
+            (false, Some(_)) => format!("remove {name} from the favorites"),
+        };
+        if !args.dry_run {
+            let id = args.id.as_str();
+            match (args.favorite, favorite.as_deref()) {
+                (true, None) => {
+                    self.session
+                        .call(|client| async move { client.add_favorite(id).await })
+                        .await?;
+                }
+                (false, Some(favorite)) => {
+                    self.session
+                        .call(|client| async move { client.remove_favorite(favorite).await })
+                        .await?;
+                }
+                _ => {}
+            }
+        }
+        Ok(Json(WriteResult::new(
+            args.dry_run,
+            action,
+            Some(args.id.clone()),
+        )))
     }
 
     /// The folders the agent can see, with their paths.
@@ -417,6 +491,352 @@ impl PassboltMcp {
             code,
             seconds_remaining,
         }))
+    }
+
+    /// The folder `entry` names (by path or id), or the root when absent, if the agent may act there.
+    async fn place(&self, entry: Option<&str>) -> Result<Place, ToolError> {
+        let Some(entry) = entry else {
+            self.rules.reaches(None)?;
+            return Ok(Place::root());
+        };
+        let folders = self.all_folders().await?;
+        let folder = find_folder(entry, &folders)
+            .map_err(|error| ToolError::invalid_argument(error.to_string()))?;
+        self.rules.reaches(Some(&folder.id))?;
+        Ok(Place {
+            id: Some(folder.id.clone()),
+            name: folder_paths(&folders)
+                .remove(&folder.id)
+                .unwrap_or_else(|| folder.name.clone()),
+        })
+    }
+
+    /// Create a resource, its secret encrypted for the MCP user; in a folder, it gets the
+    /// permissions of the folder.
+    #[tool(annotations(read_only_hint = false, destructive_hint = false))]
+    async fn create_resource(
+        &self,
+        Parameters(args): Parameters<CreateResource>,
+    ) -> Result<Json<WriteResult>, ToolError> {
+        let place = self.place(args.folder.as_deref()).await?;
+        let action = format!("create the resource {} in {}", args.name, place.name);
+        if args.dry_run {
+            return Ok(Json(WriteResult::new(true, action, None)));
+        }
+        let new_resource = NewResource {
+            resource_type: args.resource_type,
+            name: args.name,
+            username: args.username,
+            uris: args.uris,
+            description: args.description,
+            note: args.note,
+            password: args.password,
+            folder_parent_id: place.id,
+            expired: args.expiry,
+            ..NewResource::default()
+        };
+        let created = self
+            .session
+            .call(|client| {
+                let new_resource = new_resource.clone();
+                async move { create_resource(&client, &new_resource).await }
+            })
+            .await?;
+        Ok(Json(WriteResult::new(false, action, Some(created.id))))
+    }
+
+    /// The resource `id` with its name, if the agent can see it and the MCP user has at least
+    /// `needed` (7: update, 15: owner) on it.
+    async fn resource_with(
+        &self,
+        id: &str,
+        needed: i32,
+    ) -> Result<(passbolt_sdk::types::Resource, String), ToolError> {
+        let resource = self.resource_in_scope(id).await?;
+        let client = self.session.client().await;
+        let metadata = client.decrypt_resource_metadata(&resource).await?;
+        let resource_types = client.resource_types().await?;
+        let name = ResourceView::new(resource.clone(), metadata, &resource_types)?.name;
+        let permission = resource
+            .permission
+            .as_ref()
+            .and_then(|permission| permission.permission_type)
+            .unwrap_or_default();
+        if permission < needed {
+            return Err(ToolError::forbidden(format!(
+                "the MCP user has {} on {name}, {} is needed",
+                crate::read::permission_name(permission),
+                crate::read::permission_name(needed)
+            )));
+        }
+        Ok((resource, name))
+    }
+
+    /// Change the fields given of a resource; a new secret is encrypted for everyone with access.
+    #[tool(annotations(read_only_hint = false, destructive_hint = false))]
+    async fn update_resource(
+        &self,
+        Parameters(args): Parameters<UpdateResource>,
+    ) -> Result<Json<WriteResult>, ToolError> {
+        let changed = args.changed();
+        if changed.is_empty() {
+            return Err(ToolError::invalid_argument("nothing to change".into()));
+        }
+        let (_, name) = self.resource_with(&args.id, 7).await?;
+        let action = format!("change the {} of the resource {name}", changed.join(", "));
+        if args.dry_run {
+            return Ok(Json(WriteResult::new(true, action, Some(args.id))));
+        }
+        let changes = ResourceChanges {
+            name: args.name,
+            username: args.username,
+            uris: args.uris,
+            description: args.description,
+            note: args.note,
+            password: args.password,
+            expired: if args.clear_expiry {
+                Some(None)
+            } else {
+                args.expiry.map(Some)
+            },
+            ..ResourceChanges::default()
+        };
+        let id = args.id.as_str();
+        self.session
+            .call(|client| {
+                let changes = changes.clone();
+                async move { update_resource(&client, id, &changes).await }
+            })
+            .await?;
+        Ok(Json(WriteResult::new(false, action, Some(args.id.clone()))))
+    }
+
+    /// Delete a resource, for everyone it is shared with. Try it with `dry_run` first.
+    #[tool(annotations(read_only_hint = false, destructive_hint = true))]
+    async fn delete_resource(
+        &self,
+        Parameters(args): Parameters<DeleteResource>,
+    ) -> Result<Json<WriteResult>, ToolError> {
+        let (_, name) = self.resource_with(&args.id, 7).await?;
+        let action = format!("delete the resource {name}, for everyone it is shared with");
+        if !args.dry_run {
+            let id = args.id.as_str();
+            self.session
+                .call(|client| async move { client.delete_resource(id).await })
+                .await?;
+        }
+        Ok(Json(WriteResult::new(
+            args.dry_run,
+            action,
+            Some(args.id.clone()),
+        )))
+    }
+
+    /// Move a resource to another folder of the scope.
+    #[tool(annotations(read_only_hint = false, destructive_hint = false))]
+    async fn move_resource(
+        &self,
+        Parameters(args): Parameters<MoveResource>,
+    ) -> Result<Json<WriteResult>, ToolError> {
+        let (_, name) = self.resource_with(&args.id, 7).await?;
+        let place = self.place(args.folder.as_deref()).await?;
+        let action = format!("move the resource {name} to {}", place.name);
+        if !args.dry_run {
+            let (id, folder) = (args.id.as_str(), place.id.as_deref());
+            self.session
+                .call(|client| async move { client.move_resource(id, folder).await })
+                .await?;
+        }
+        Ok(Json(WriteResult::new(
+            args.dry_run,
+            action,
+            Some(args.id.clone()),
+        )))
+    }
+
+    /// The folder `entry` names, with its path, if the agent may act there and the MCP user has
+    /// at least `needed` (7: update, 15: owner) on it.
+    async fn folder_with(&self, entry: &str, needed: i32) -> Result<(Folder, String), ToolError> {
+        let folders = self.all_folders().await?;
+        let folder = find_folder(entry, &folders)
+            .map_err(|error| ToolError::invalid_argument(error.to_string()))?
+            .clone();
+        self.rules.reaches(Some(&folder.id))?;
+        let path = folder_paths(&folders)
+            .remove(&folder.id)
+            .unwrap_or_else(|| folder.name.clone());
+        let permission = folder
+            .permission
+            .as_ref()
+            .and_then(|permission| permission.permission_type)
+            .unwrap_or_default();
+        if permission < needed {
+            return Err(ToolError::forbidden(format!(
+                "the MCP user has {} on the folder {path}, {} is needed",
+                crate::read::permission_name(permission),
+                crate::read::permission_name(needed)
+            )));
+        }
+        Ok((folder, path))
+    }
+
+    /// Create a folder; in a parent folder, it gets the permissions of the parent.
+    #[tool(annotations(read_only_hint = false, destructive_hint = false))]
+    async fn create_folder(
+        &self,
+        Parameters(args): Parameters<CreateFolder>,
+    ) -> Result<Json<WriteResult>, ToolError> {
+        let place = self.place(args.parent.as_deref()).await?;
+        let action = format!("create the folder {} in {}", args.name, place.name);
+        if args.dry_run {
+            return Ok(Json(WriteResult::new(true, action, None)));
+        }
+        let (name, parent) = (args.name.as_str(), place.id.as_deref());
+        let created = self
+            .session
+            .call(|client| async move { create_folder(&client, name, parent).await })
+            .await?;
+        Ok(Json(WriteResult::new(false, action, Some(created.id))))
+    }
+
+    /// Rename a folder.
+    #[tool(annotations(read_only_hint = false, destructive_hint = false))]
+    async fn rename_folder(
+        &self,
+        Parameters(args): Parameters<RenameFolder>,
+    ) -> Result<Json<WriteResult>, ToolError> {
+        let (folder, path) = self.folder_with(&args.folder, 7).await?;
+        let action = format!("rename the folder {path} to {}", args.name);
+        if !args.dry_run {
+            let (id, name) = (folder.id.as_str(), args.name.as_str());
+            self.session
+                .call(|client| async move {
+                    client
+                        .update_folder(id, &UpdateFolderPayload { name: name.into() })
+                        .await
+                })
+                .await?;
+        }
+        Ok(Json(WriteResult::new(
+            args.dry_run,
+            action,
+            Some(folder.id),
+        )))
+    }
+
+    /// Move a folder, with its content, into another folder of the scope.
+    #[tool(annotations(read_only_hint = false, destructive_hint = false))]
+    async fn move_folder(
+        &self,
+        Parameters(args): Parameters<MoveFolder>,
+    ) -> Result<Json<WriteResult>, ToolError> {
+        let (folder, path) = self.folder_with(&args.folder, 7).await?;
+        let place = self.place(args.parent.as_deref()).await?;
+        if place.id.as_deref() == Some(folder.id.as_str()) {
+            return Err(ToolError::invalid_argument(
+                "a folder cannot move into itself".into(),
+            ));
+        }
+        let action = format!("move the folder {path} to {}", place.name);
+        if !args.dry_run {
+            let (id, parent) = (folder.id.as_str(), place.id.as_deref());
+            self.session
+                .call(|client| async move { client.move_folder(id, parent).await })
+                .await?;
+        }
+        Ok(Json(WriteResult::new(
+            args.dry_run,
+            action,
+            Some(folder.id),
+        )))
+    }
+
+    /// Delete a folder, for everyone it is shared with; with `with_content`, its subfolders and
+    /// resources too. Try it with `dry_run` first.
+    #[tool(annotations(read_only_hint = false, destructive_hint = true))]
+    async fn delete_folder(
+        &self,
+        Parameters(args): Parameters<DeleteFolder>,
+    ) -> Result<Json<WriteResult>, ToolError> {
+        let (folder, path) = self.folder_with(&args.folder, 7).await?;
+        let action = if args.with_content {
+            format!("delete the folder {path}, its subfolders and their resources")
+        } else {
+            format!("delete the folder {path}; its content moves up to its parent")
+        };
+        if !args.dry_run {
+            let id = folder.id.as_str();
+            let with_content = args.with_content;
+            self.session
+                .call(|client| async move {
+                    if with_content {
+                        client.delete_folder_with_content(id).await
+                    } else {
+                        client.delete_folder(id).await
+                    }
+                })
+                .await?;
+        }
+        Ok(Json(WriteResult::new(
+            args.dry_run,
+            action,
+            Some(folder.id),
+        )))
+    }
+
+    /// Comment on a resource, as the MCP user.
+    #[tool(annotations(read_only_hint = false, destructive_hint = false))]
+    async fn add_comment(
+        &self,
+        Parameters(args): Parameters<AddComment>,
+    ) -> Result<Json<WriteResult>, ToolError> {
+        let (_, name) = self.resource_with(&args.id, 1).await?;
+        let action = format!("comment on the resource {name}");
+        if args.dry_run {
+            return Ok(Json(WriteResult::new(true, action, None)));
+        }
+        let (id, content, parent) = (
+            args.id.as_str(),
+            args.content.as_str(),
+            args.parent_id.as_deref(),
+        );
+        let comment = self
+            .session
+            .call(|client| async move { client.create_comment(id, content, parent).await })
+            .await?;
+        Ok(Json(WriteResult::new(false, action, Some(comment.id))))
+    }
+
+    /// Delete a comment the MCP user wrote on a resource.
+    #[tool(annotations(read_only_hint = false, destructive_hint = true))]
+    async fn delete_comment(
+        &self,
+        Parameters(args): Parameters<DeleteComment>,
+    ) -> Result<Json<WriteResult>, ToolError> {
+        let (_, name) = self.resource_with(&args.id, 1).await?;
+        let id = args.id.as_str();
+        let comments = self
+            .session
+            .call(|client| async move { client.get_comments(id).await })
+            .await?;
+        if !comments.iter().any(|comment| comment.id == args.comment_id) {
+            return Err(ToolError::invalid_argument(format!(
+                "the resource {name} has no comment {}",
+                args.comment_id
+            )));
+        }
+        let action = format!("delete a comment on the resource {name}");
+        if !args.dry_run {
+            let comment = args.comment_id.as_str();
+            self.session
+                .call(|client| async move { client.delete_comment(comment).await })
+                .await?;
+        }
+        Ok(Json(WriteResult::new(
+            args.dry_run,
+            action,
+            Some(args.comment_id.clone()),
+        )))
     }
 
     /// The Passbolt user this server acts as, and what its rules allow.

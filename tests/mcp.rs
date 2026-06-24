@@ -236,3 +236,170 @@ async fn secrets_stay_out_of_the_logs() {
         "the generated password is in the logs"
     );
 }
+
+async fn client_with(config: &ConfigWith) -> RunningService<RoleClient, ()> {
+    let path = config.0.to_str().unwrap().to_string();
+    let command =
+        tokio::process::Command::new(env!("CARGO_BIN_EXE_passbolt-mcp")).configure(|command| {
+            command.args(["--config", &path, "serve"]);
+        });
+    ().serve(TokioChildProcess::new(command).unwrap())
+        .await
+        .unwrap()
+}
+
+/// Call `tool`, which must fail: its error.
+async fn refused(
+    client: &RunningService<RoleClient, ()>,
+    tool: &'static str,
+    args: Value,
+) -> Value {
+    let result = client
+        .call_tool(
+            CallToolRequestParams::new(tool).with_arguments(args.as_object().unwrap().clone()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(result.is_error, Some(true), "{tool} succeeded");
+    result.structured_content.unwrap()
+}
+
+#[tokio::test]
+#[ignore = "needs a Passbolt server"]
+async fn no_writes_by_default() {
+    let client = client().await;
+    let tools = client.list_all_tools().await.unwrap();
+    for tool in [
+        "create_resource",
+        "update_resource",
+        "delete_resource",
+        "delete_folder",
+    ] {
+        assert!(!tools.iter().any(|found| found.name == tool), "{tool}");
+    }
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a Passbolt server"]
+async fn writes() {
+    let config = ConfigWith::new("write = true");
+    let client = client_with(&config).await;
+    let root = format!("mcp-e2e-{}", std::process::id());
+    let sub = format!("{root}/sub");
+
+    let folder = call(&client, "create_folder", json!({ "name": root })).await;
+    assert!(folder["id"].is_string());
+    call(
+        &client,
+        "create_folder",
+        json!({ "name": "sub", "parent": root }),
+    )
+    .await;
+    let created = call(
+        &client,
+        "create_resource",
+        json!({ "name": format!("{root}-db"), "username": "agent", "password": "Pass-e2e-1", "folder": root }),
+    )
+    .await;
+    let id = created["id"].as_str().unwrap().to_string();
+
+    // A dry run changes nothing.
+    let dry = call(
+        &client,
+        "delete_resource",
+        json!({ "id": id, "dry_run": true }),
+    )
+    .await;
+    assert_eq!(dry["dry_run"], true);
+    call(&client, "get_resource", json!({ "id": id })).await;
+
+    call(
+        &client,
+        "update_resource",
+        json!({ "id": id, "username": "agent-2" }),
+    )
+    .await;
+    assert_eq!(
+        call(&client, "get_resource", json!({ "id": id })).await["username"],
+        "agent-2"
+    );
+    call(&client, "move_resource", json!({ "id": id, "folder": sub })).await;
+    assert_eq!(
+        call(&client, "get_resource", json!({ "id": id })).await["folder"],
+        sub.as_str()
+    );
+
+    call(
+        &client,
+        "set_favorite",
+        json!({ "id": id, "favorite": true }),
+    )
+    .await;
+    assert_eq!(
+        call(&client, "get_resource", json!({ "id": id })).await["favorite"],
+        true
+    );
+    let comment = call(
+        &client,
+        "add_comment",
+        json!({ "id": id, "content": "e2e" }),
+    )
+    .await;
+    call(
+        &client,
+        "delete_comment",
+        json!({ "id": id, "comment_id": comment["id"] }),
+    )
+    .await;
+
+    call(
+        &client,
+        "delete_folder",
+        json!({ "folder": root, "with_content": true }),
+    )
+    .await;
+    assert_eq!(
+        refused(&client, "get_resource", json!({ "id": id })).await["code"],
+        "not_found"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a Passbolt server"]
+async fn writes_stay_in_the_scope() {
+    let config = ConfigWith::new("write = true");
+    let client = client_with(&config).await;
+    let root = format!("mcp-e2e-scope-{}", std::process::id());
+    call(&client, "create_folder", json!({ "name": root })).await;
+    client.cancel().await.unwrap();
+
+    let scoped = ConfigWith::new(&format!("write = true\n[scope]\nfolders = [\"{root}\"]"));
+    let client = client_with(&scoped).await;
+    let outside = refused(
+        &client,
+        "create_resource",
+        json!({ "name": "outside", "password": "x-Y-1z" }),
+    )
+    .await;
+    assert_eq!(outside["code"], "refused");
+    assert_eq!(
+        outside["message"],
+        "refused by the MCP rules: outside scope.folders"
+    );
+    let inside = call(
+        &client,
+        "create_resource",
+        json!({ "name": "inside", "password": "x-Y-1z", "folder": root }),
+    )
+    .await;
+    assert!(inside["id"].is_string());
+    call(
+        &client,
+        "delete_folder",
+        json!({ "folder": root, "with_content": true }),
+    )
+    .await;
+    client.cancel().await.unwrap();
+}
