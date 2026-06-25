@@ -15,9 +15,11 @@
 use std::sync::Arc;
 
 use passbolt_sdk::folder::create::create_folder;
+use passbolt_sdk::permission::grants;
 use passbolt_sdk::resource::create::{create_resource, NewResource};
 use passbolt_sdk::resource::get::get_totp_code;
 use passbolt_sdk::resource::list::list_resources;
+use passbolt_sdk::resource::share::share_resource;
 use passbolt_sdk::resource::update::{update_resource, ResourceChanges};
 use passbolt_sdk::resource::view::ResourceView;
 use passbolt_sdk::types::{Folder, UpdateFolderPayload};
@@ -44,6 +46,7 @@ use crate::secrets::{
     self, GeneratePassword, GeneratedPassword, GetSecret, Pwned, SecretField, TotpCode,
 };
 use crate::session::{self, Session};
+use crate::share::{self, ShareResource, Simulation};
 use crate::write::{
     AddComment, CreateFolder, CreateResource, DeleteComment, DeleteFolder, DeleteResource,
     MoveFolder, MoveResource, Place, RenameFolder, SetFavorite, UpdateResource, WriteResult,
@@ -92,7 +95,7 @@ fn needs(tool: &str) -> Option<Access> {
         "create_resource" | "update_resource" | "delete_resource" | "move_resource"
         | "create_folder" | "rename_folder" | "move_folder" | "delete_folder" | "set_favorite"
         | "add_comment" | "delete_comment" => Some(Access::Write),
-        "search_aros" => Some(Access::Share),
+        "search_aros" | "share_resource" | "simulate_share" => Some(Access::Share),
         _ => None,
     }
 }
@@ -837,6 +840,72 @@ impl PassboltMcp {
             action,
             Some(args.comment_id.clone()),
         )))
+    }
+
+    /// Share a resource with users and groups, or revoke their access; the MCP user must own it.
+    /// Those who gain access get the secret, encrypted for them.
+    #[tool(annotations(read_only_hint = false, destructive_hint = true))]
+    async fn share_resource(
+        &self,
+        Parameters(args): Parameters<ShareResource>,
+    ) -> Result<Json<WriteResult>, ToolError> {
+        let permission = share::permission_type(&args.permission)?;
+        let whom = share::describe(args.users.len(), args.groups.len(), &args.permission)?;
+        let (_, name) = self.resource_with(&args.id, 15).await?;
+        let action = format!("{whom} the resource {name}");
+        if !args.dry_run {
+            let (id, users, groups) = (args.id.as_str(), &args.users, &args.groups);
+            self.session
+                .call(|client| async move {
+                    share_resource(&client, id, users, groups, permission).await
+                })
+                .await?;
+        }
+        Ok(Json(WriteResult::new(
+            args.dry_run,
+            action,
+            Some(args.id.clone()),
+        )))
+    }
+
+    /// Who would get access to a resource if it were shared so, group members included; shares
+    /// nothing.
+    #[tool(annotations(read_only_hint = true))]
+    async fn simulate_share(
+        &self,
+        Parameters(args): Parameters<ShareResource>,
+    ) -> Result<Json<Simulation>, ToolError> {
+        let permission = share::permission_type(&args.permission)?;
+        let whom = share::describe(args.users.len(), args.groups.len(), &args.permission)?;
+        let (_, name) = self.resource_with(&args.id, 15).await?;
+        let id = args.id.as_str();
+        let existing = self
+            .session
+            .call(|client| async move { client.get_resource_permissions(id).await })
+            .await?;
+        let before = grants(&existing);
+        let after = share::target(before.clone(), &args.users, &args.groups, permission);
+        let groups = self
+            .session
+            .call(|client| async move { client.get_groups(GroupQuery::default()).await })
+            .await?;
+        let gaining = share::gaining(&before, &after, &groups);
+        let users = self
+            .session
+            .call(|client| async move { client.get_users(UserQuery::default()).await })
+            .await?;
+        Ok(Json(Simulation {
+            action: format!("{whom} the resource {name}"),
+            gaining_access: gaining
+                .iter()
+                .map(|id| {
+                    users
+                        .iter()
+                        .find(|user| &user.id == id)
+                        .map_or_else(|| id.clone(), session::display_name)
+                })
+                .collect(),
+        }))
     }
 
     /// The Passbolt user this server acts as, and what its rules allow.
