@@ -15,6 +15,7 @@
 use std::sync::Arc;
 
 use passbolt_sdk::folder::create::create_folder;
+use passbolt_sdk::folder::share::share_folder;
 use passbolt_sdk::permission::grants;
 use passbolt_sdk::resource::create::{create_resource, NewResource};
 use passbolt_sdk::resource::get::get_totp_code;
@@ -46,7 +47,7 @@ use crate::secrets::{
     self, GeneratePassword, GeneratedPassword, GetSecret, Pwned, SecretField, TotpCode,
 };
 use crate::session::{self, Session};
-use crate::share::{self, ShareResource, Simulation};
+use crate::share::{self, ShareFolder, ShareResource, Simulation};
 use crate::write::{
     AddComment, CreateFolder, CreateResource, DeleteComment, DeleteFolder, DeleteResource,
     MoveFolder, MoveResource, Place, RenameFolder, SetFavorite, UpdateResource, WriteResult,
@@ -95,7 +96,7 @@ fn needs(tool: &str) -> Option<Access> {
         "create_resource" | "update_resource" | "delete_resource" | "move_resource"
         | "create_folder" | "rename_folder" | "move_folder" | "delete_folder" | "set_favorite"
         | "add_comment" | "delete_comment" => Some(Access::Write),
-        "search_aros" | "share_resource" | "simulate_share" => Some(Access::Share),
+        "search_aros" | "share_resource" | "simulate_share" | "share_folder" => Some(Access::Share),
         _ => None,
     }
 }
@@ -906,6 +907,38 @@ impl PassboltMcp {
                 })
                 .collect(),
         }))
+    }
+
+    /// Share a folder with users and groups, or revoke their access; the MCP user must own it.
+    /// With `with_content` (the default), also on what it owns inside.
+    #[tool(annotations(read_only_hint = false, destructive_hint = true))]
+    async fn share_folder(
+        &self,
+        Parameters(args): Parameters<ShareFolder>,
+    ) -> Result<Json<WriteResult>, ToolError> {
+        let permission = share::permission_type(&args.permission)?;
+        let whom = share::describe(args.users.len(), args.groups.len(), &args.permission)?;
+        let (folder, path) = self.folder_with(&args.folder, 15).await?;
+        let content = if args.with_content {
+            " and what the MCP user owns in it"
+        } else {
+            ""
+        };
+        let action = format!("{whom} the folder {path}{content}");
+        if !args.dry_run {
+            let (id, users, groups) = (folder.id.as_str(), &args.users, &args.groups);
+            let with_content = args.with_content;
+            self.session
+                .call(|client| async move {
+                    share_folder(&client, id, users, groups, permission, with_content).await
+                })
+                .await?;
+        }
+        Ok(Json(WriteResult::new(
+            args.dry_run,
+            action,
+            Some(folder.id),
+        )))
     }
 
     /// The Passbolt user this server acts as, and what its rules allow.
