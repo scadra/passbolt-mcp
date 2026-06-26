@@ -15,12 +15,16 @@
 use std::sync::Arc;
 
 use passbolt_sdk::folder::create::create_folder;
-use passbolt_sdk::folder::share::share_folder;
+use passbolt_sdk::folder::share::{
+    move_with_folder_permissions as folder_move_with_permissions, share_folder,
+};
 use passbolt_sdk::permission::grants;
 use passbolt_sdk::resource::create::{create_resource, NewResource};
 use passbolt_sdk::resource::get::get_totp_code;
 use passbolt_sdk::resource::list::list_resources;
-use passbolt_sdk::resource::share::share_resource;
+use passbolt_sdk::resource::share::{
+    move_with_folder_permissions as resource_move_with_permissions, share_resource,
+};
 use passbolt_sdk::resource::update::{update_resource, ResourceChanges};
 use passbolt_sdk::resource::view::ResourceView;
 use passbolt_sdk::types::{Folder, UpdateFolderPayload};
@@ -77,6 +81,14 @@ pub struct WhoAmI {
     pub share: bool,
     /// The folders of `scope.folders`, with their subfolders; absent: everything the user sees.
     pub scope_folders: Option<usize>,
+}
+
+const fn moved_permissions(with_permissions: bool) -> &'static str {
+    if with_permissions {
+        "with the permissions of the folder"
+    } else {
+        "its permissions unchanged"
+    }
 }
 
 /// What each tool needs from the rules. A tool missing here is never offered.
@@ -642,13 +654,24 @@ impl PassboltMcp {
         &self,
         Parameters(args): Parameters<MoveResource>,
     ) -> Result<Json<WriteResult>, ToolError> {
-        let (_, name) = self.resource_with(&args.id, 7).await?;
+        let (resource, name) = self.resource_with(&args.id, 7).await?;
         let place = self.place(args.folder.as_deref()).await?;
-        let action = format!("move the resource {name} to {}", place.name);
+        let with_permissions = self.moves_permissions(resource.permission.as_ref());
+        let action = format!(
+            "move the resource {name} to {}, {}",
+            place.name,
+            moved_permissions(with_permissions)
+        );
         if !args.dry_run {
             let (id, folder) = (args.id.as_str(), place.id.as_deref());
             self.session
-                .call(|client| async move { client.move_resource(id, folder).await })
+                .call(|client| async move {
+                    if with_permissions {
+                        resource_move_with_permissions(&client, id, folder).await
+                    } else {
+                        client.move_resource(id, folder).await
+                    }
+                })
                 .await?;
         }
         Ok(Json(WriteResult::new(
@@ -656,6 +679,14 @@ impl PassboltMcp {
             action,
             Some(args.id.clone()),
         )))
+    }
+
+    /// A move gives the permissions of the destination, as the browser extension does, only when
+    /// the agent may share and the MCP user owns what moves: otherwise, moving into a shared
+    /// folder would share without `access.share`.
+    fn moves_permissions(&self, permission: Option<&passbolt_sdk::types::Permission>) -> bool {
+        self.rules.access().share
+            && permission.and_then(|permission| permission.permission_type) == Some(15)
     }
 
     /// The folder `entry` names, with its path, if the agent may act there and the MCP user has
@@ -741,11 +772,22 @@ impl PassboltMcp {
                 "a folder cannot move into itself".into(),
             ));
         }
-        let action = format!("move the folder {path} to {}", place.name);
+        let with_permissions = self.moves_permissions(folder.permission.as_ref());
+        let action = format!(
+            "move the folder {path} to {}, {}",
+            place.name,
+            moved_permissions(with_permissions)
+        );
         if !args.dry_run {
             let (id, parent) = (folder.id.as_str(), place.id.as_deref());
             self.session
-                .call(|client| async move { client.move_folder(id, parent).await })
+                .call(|client| async move {
+                    if with_permissions {
+                        folder_move_with_permissions(&client, id, parent).await
+                    } else {
+                        client.move_folder(id, parent).await
+                    }
+                })
                 .await?;
         }
         Ok(Json(WriteResult::new(
