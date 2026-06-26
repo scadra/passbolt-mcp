@@ -24,8 +24,13 @@ Against a Passbolt server, with the configuration of an MCP user and after `pass
 the login and an MCP client calling `passbolt-mcp` over stdio:
 
 ```bash
-PASSBOLT_MCP_E2E_CONFIG=passbolt-mcp.toml cargo test -- --ignored
+PASSBOLT_MCP_E2E_CONFIG=passbolt-mcp.toml PASSBOLT_MCP_E2E_SHARE_WITH=betty@example.com \
+  cargo test -- --ignored
 ```
+
+`PASSBOLT_MCP_E2E_SHARE_WITH` is another user of the server, to share with. The tests that write
+work in folders of their own (`mcp-e2e-…`) and delete them at the end; the configuration must
+have no `[access]` section, which they add.
 
 Logs go to stderr, filtered by `PASSBOLT_MCP_LOG` (`warn` by default, `debug` to see more): in
 stdio, stdout carries the MCP messages and nothing else.
