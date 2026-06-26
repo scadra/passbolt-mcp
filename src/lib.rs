@@ -23,4 +23,5 @@ pub mod secrets;
 pub mod server;
 pub mod server_key;
 pub mod session;
+pub mod share;
 pub mod write;

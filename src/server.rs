@@ -15,9 +15,16 @@
 use std::sync::Arc;
 
 use passbolt_sdk::folder::create::create_folder;
+use passbolt_sdk::folder::share::{
+    move_with_folder_permissions as folder_move_with_permissions, share_folder,
+};
+use passbolt_sdk::permission::grants;
 use passbolt_sdk::resource::create::{create_resource, NewResource};
 use passbolt_sdk::resource::get::get_totp_code;
 use passbolt_sdk::resource::list::list_resources;
+use passbolt_sdk::resource::share::{
+    move_with_folder_permissions as resource_move_with_permissions, share_resource,
+};
 use passbolt_sdk::resource::update::{update_resource, ResourceChanges};
 use passbolt_sdk::resource::view::ResourceView;
 use passbolt_sdk::types::{Folder, UpdateFolderPayload};
@@ -44,6 +51,7 @@ use crate::secrets::{
     self, GeneratePassword, GeneratedPassword, GetSecret, Pwned, SecretField, TotpCode,
 };
 use crate::session::{self, Session};
+use crate::share::{self, ShareFolder, ShareResource, Simulation};
 use crate::write::{
     AddComment, CreateFolder, CreateResource, DeleteComment, DeleteFolder, DeleteResource,
     MoveFolder, MoveResource, Place, RenameFolder, SetFavorite, UpdateResource, WriteResult,
@@ -75,6 +83,14 @@ pub struct WhoAmI {
     pub scope_folders: Option<usize>,
 }
 
+const fn moved_permissions(with_permissions: bool) -> &'static str {
+    if with_permissions {
+        "with the permissions of the folder"
+    } else {
+        "its permissions unchanged"
+    }
+}
+
 /// What each tool needs from the rules. A tool missing here is never offered.
 fn needs(tool: &str) -> Option<Access> {
     match tool {
@@ -92,7 +108,7 @@ fn needs(tool: &str) -> Option<Access> {
         "create_resource" | "update_resource" | "delete_resource" | "move_resource"
         | "create_folder" | "rename_folder" | "move_folder" | "delete_folder" | "set_favorite"
         | "add_comment" | "delete_comment" => Some(Access::Write),
-        "search_aros" => Some(Access::Share),
+        "search_aros" | "share_resource" | "simulate_share" | "share_folder" => Some(Access::Share),
         _ => None,
     }
 }
@@ -638,13 +654,24 @@ impl PassboltMcp {
         &self,
         Parameters(args): Parameters<MoveResource>,
     ) -> Result<Json<WriteResult>, ToolError> {
-        let (_, name) = self.resource_with(&args.id, 7).await?;
+        let (resource, name) = self.resource_with(&args.id, 7).await?;
         let place = self.place(args.folder.as_deref()).await?;
-        let action = format!("move the resource {name} to {}", place.name);
+        let with_permissions = self.moves_permissions(resource.permission.as_ref());
+        let action = format!(
+            "move the resource {name} to {}, {}",
+            place.name,
+            moved_permissions(with_permissions)
+        );
         if !args.dry_run {
             let (id, folder) = (args.id.as_str(), place.id.as_deref());
             self.session
-                .call(|client| async move { client.move_resource(id, folder).await })
+                .call(|client| async move {
+                    if with_permissions {
+                        resource_move_with_permissions(&client, id, folder).await
+                    } else {
+                        client.move_resource(id, folder).await
+                    }
+                })
                 .await?;
         }
         Ok(Json(WriteResult::new(
@@ -652,6 +679,14 @@ impl PassboltMcp {
             action,
             Some(args.id.clone()),
         )))
+    }
+
+    /// A move gives the permissions of the destination, as the browser extension does, only when
+    /// the agent may share and the MCP user owns what moves: otherwise, moving into a shared
+    /// folder would share without `access.share`.
+    fn moves_permissions(&self, permission: Option<&passbolt_sdk::types::Permission>) -> bool {
+        self.rules.access().share
+            && permission.and_then(|permission| permission.permission_type) == Some(15)
     }
 
     /// The folder `entry` names, with its path, if the agent may act there and the MCP user has
@@ -737,11 +772,22 @@ impl PassboltMcp {
                 "a folder cannot move into itself".into(),
             ));
         }
-        let action = format!("move the folder {path} to {}", place.name);
+        let with_permissions = self.moves_permissions(folder.permission.as_ref());
+        let action = format!(
+            "move the folder {path} to {}, {}",
+            place.name,
+            moved_permissions(with_permissions)
+        );
         if !args.dry_run {
             let (id, parent) = (folder.id.as_str(), place.id.as_deref());
             self.session
-                .call(|client| async move { client.move_folder(id, parent).await })
+                .call(|client| async move {
+                    if with_permissions {
+                        folder_move_with_permissions(&client, id, parent).await
+                    } else {
+                        client.move_folder(id, parent).await
+                    }
+                })
                 .await?;
         }
         Ok(Json(WriteResult::new(
@@ -836,6 +882,104 @@ impl PassboltMcp {
             args.dry_run,
             action,
             Some(args.comment_id.clone()),
+        )))
+    }
+
+    /// Share a resource with users and groups, or revoke their access; the MCP user must own it.
+    /// Those who gain access get the secret, encrypted for them.
+    #[tool(annotations(read_only_hint = false, destructive_hint = true))]
+    async fn share_resource(
+        &self,
+        Parameters(args): Parameters<ShareResource>,
+    ) -> Result<Json<WriteResult>, ToolError> {
+        let permission = share::permission_type(&args.permission)?;
+        let whom = share::describe(args.users.len(), args.groups.len(), &args.permission)?;
+        let (_, name) = self.resource_with(&args.id, 15).await?;
+        let action = format!("{whom} the resource {name}");
+        if !args.dry_run {
+            let (id, users, groups) = (args.id.as_str(), &args.users, &args.groups);
+            self.session
+                .call(|client| async move {
+                    share_resource(&client, id, users, groups, permission).await
+                })
+                .await?;
+        }
+        Ok(Json(WriteResult::new(
+            args.dry_run,
+            action,
+            Some(args.id.clone()),
+        )))
+    }
+
+    /// Who would get access to a resource if it were shared so, group members included; shares
+    /// nothing.
+    #[tool(annotations(read_only_hint = true))]
+    async fn simulate_share(
+        &self,
+        Parameters(args): Parameters<ShareResource>,
+    ) -> Result<Json<Simulation>, ToolError> {
+        let permission = share::permission_type(&args.permission)?;
+        let whom = share::describe(args.users.len(), args.groups.len(), &args.permission)?;
+        let (_, name) = self.resource_with(&args.id, 15).await?;
+        let id = args.id.as_str();
+        let existing = self
+            .session
+            .call(|client| async move { client.get_resource_permissions(id).await })
+            .await?;
+        let before = grants(&existing);
+        let after = share::target(before.clone(), &args.users, &args.groups, permission);
+        let groups = self
+            .session
+            .call(|client| async move { client.get_groups(GroupQuery::default()).await })
+            .await?;
+        let gaining = share::gaining(&before, &after, &groups);
+        let users = self
+            .session
+            .call(|client| async move { client.get_users(UserQuery::default()).await })
+            .await?;
+        Ok(Json(Simulation {
+            action: format!("{whom} the resource {name}"),
+            gaining_access: gaining
+                .iter()
+                .map(|id| {
+                    users
+                        .iter()
+                        .find(|user| &user.id == id)
+                        .map_or_else(|| id.clone(), session::display_name)
+                })
+                .collect(),
+        }))
+    }
+
+    /// Share a folder with users and groups, or revoke their access; the MCP user must own it.
+    /// With `with_content` (the default), also on what it owns inside.
+    #[tool(annotations(read_only_hint = false, destructive_hint = true))]
+    async fn share_folder(
+        &self,
+        Parameters(args): Parameters<ShareFolder>,
+    ) -> Result<Json<WriteResult>, ToolError> {
+        let permission = share::permission_type(&args.permission)?;
+        let whom = share::describe(args.users.len(), args.groups.len(), &args.permission)?;
+        let (folder, path) = self.folder_with(&args.folder, 15).await?;
+        let content = if args.with_content {
+            " and what the MCP user owns in it"
+        } else {
+            ""
+        };
+        let action = format!("{whom} the folder {path}{content}");
+        if !args.dry_run {
+            let (id, users, groups) = (folder.id.as_str(), &args.users, &args.groups);
+            let with_content = args.with_content;
+            self.session
+                .call(|client| async move {
+                    share_folder(&client, id, users, groups, permission, with_content).await
+                })
+                .await?;
+        }
+        Ok(Json(WriteResult::new(
+            args.dry_run,
+            action,
+            Some(folder.id),
         )))
     }
 

@@ -59,10 +59,10 @@ change, never their values.
 | `create_resource` | `name`, `username`, `uris`, `description`, `password`, `note`, `folder`, `resource_type`, `expiry` | a resource, its secret encrypted for the MCP user; in a folder, it gets the permissions of the folder |
 | `update_resource` | `id` and the fields to change, `clear_expiry` | the fields given; a new secret is encrypted for everyone with access |
 | `delete_resource` | `id` | deletes it for everyone (destructive) |
-| `move_resource` | `id`, `folder` (the root when absent) | into another folder of the scope |
+| `move_resource` | `id`, `folder` (the root when absent) | into another folder of the scope; its permissions: see [moves](#moves) |
 | `create_folder` | `name`, `parent` | a folder; in a parent, it gets the permissions of the parent |
 | `rename_folder` | `folder`, `name` | |
-| `move_folder` | `folder`, `parent` | with its content |
+| `move_folder` | `folder`, `parent` | with its content; see [moves](#moves) |
 | `delete_folder` | `folder`, `with_content` | without `with_content`, its content moves up to its parent (destructive) |
 | `set_favorite` | `id`, `favorite` | mark or unmark a favorite of the MCP user |
 | `add_comment` | `id`, `content`, `parent_id` | a comment, by the MCP user |
@@ -72,11 +72,20 @@ The destructive tools say so to the client, which can ask the person before call
 
 ## Sharing
 
-Offered with `access.share = true`.
+Offered with `access.share = true`, within `scope.folders`. Only an owner shares, as in Passbolt:
+a share on something the MCP user does not own is refused (`forbidden`). `permission` is `read`,
+`update`, `owner`, or `none` to revoke.
 
-| Tool | What |
-|---|---|
-| `search_aros` | users and groups to share with, by name (`search`, `limit`, `cursor`) |
-| `simulate_share` | what a share would change, without doing it |
-| `share_resource` | add or remove a user or a group on a resource |
-| `share_folder` | the same on a folder and its content |
+| Tool | Arguments | What |
+|---|---|---|
+| `search_aros` | `search`, `limit`, `cursor` | users and groups to share with, by name: their ids |
+| `simulate_share` | as `share_resource` | the users who would get access, group members included; shares nothing |
+| `share_resource` | `id`, `users`, `groups` (ids), `permission`, `dry_run` | those who get access get the secret, encrypted for them |
+| `share_folder` | `folder`, `users`, `groups`, `permission`, `with_content` (on by default), `dry_run` | with `with_content`, also on the subfolders and resources the MCP user owns in it |
+
+### Moves
+
+With `access.share` and when the MCP user owns it, `move_resource` and `move_folder` give what moves
+the permissions of its new folder, as the browser extension does. Otherwise a move leaves the
+permissions as they are, and says so: moving a resource into a shared folder never shares it
+without `access.share`.
