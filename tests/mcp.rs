@@ -403,3 +403,174 @@ async fn writes_stay_in_the_scope() {
     .await;
     client.cancel().await.unwrap();
 }
+
+/// The user to share with: `PASSBOLT_MCP_E2E_SHARE_WITH`, a username.
+fn share_with() -> String {
+    std::env::var("PASSBOLT_MCP_E2E_SHARE_WITH").expect("PASSBOLT_MCP_E2E_SHARE_WITH")
+}
+
+/// The ids of `aro` (`user` or `group`) in `get_permissions`.
+fn holders(permissions: &Value, aro: &str) -> Vec<(String, String)> {
+    permissions["permissions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|permission| permission["aro"] == aro)
+        .map(|permission| {
+            (
+                permission["id"].as_str().unwrap().to_string(),
+                permission["permission"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect()
+}
+
+#[tokio::test]
+#[ignore = "needs a Passbolt server"]
+async fn sharing() {
+    let config = ConfigWith::new("write = true\nshare = true");
+    let client = client_with(&config).await;
+    let username = share_with();
+    let found = call(&client, "search_aros", json!({ "search": username })).await;
+    let user = found["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|aro| {
+            aro["name"]
+                .as_str()
+                .unwrap()
+                .contains(&format!("<{username}>"))
+        })
+        .expect("the user to share with")["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let root = format!("mcp-e2e-share-{}", std::process::id());
+    call(&client, "create_folder", json!({ "name": root })).await;
+    let created = call(
+        &client,
+        "create_resource",
+        json!({ "name": format!("{root}-db"), "password": "Sh4re-e2e", "folder": root }),
+    )
+    .await;
+    let id = created["id"].as_str().unwrap().to_string();
+
+    let simulation = call(
+        &client,
+        "simulate_share",
+        json!({ "id": id, "users": [user], "permission": "read" }),
+    )
+    .await;
+    let gaining = simulation["gaining_access"].as_array().unwrap();
+    assert!(gaining
+        .iter()
+        .any(|name| name.as_str().unwrap().contains(&username)));
+    let unchanged = call(&client, "get_permissions", json!({ "resource": id })).await;
+    assert!(!holders(&unchanged, "user")
+        .iter()
+        .any(|(holder, _)| holder == &user));
+
+    call(
+        &client,
+        "share_resource",
+        json!({ "id": id, "users": [user], "permission": "read" }),
+    )
+    .await;
+    let shared = call(&client, "get_permissions", json!({ "resource": id })).await;
+    assert!(holders(&shared, "user").contains(&(user.clone(), "read".into())));
+    call(
+        &client,
+        "share_resource",
+        json!({ "id": id, "users": [user], "permission": "none" }),
+    )
+    .await;
+    let revoked = call(&client, "get_permissions", json!({ "resource": id })).await;
+    assert!(!holders(&revoked, "user")
+        .iter()
+        .any(|(holder, _)| holder == &user));
+
+    // On the folder and its content.
+    call(
+        &client,
+        "share_folder",
+        json!({ "folder": root, "users": [user], "permission": "update" }),
+    )
+    .await;
+    let folder = call(&client, "get_permissions", json!({ "folder": root })).await;
+    assert!(holders(&folder, "user").contains(&(user.clone(), "update".into())));
+    let content = call(&client, "get_permissions", json!({ "resource": id })).await;
+    assert!(holders(&content, "user").contains(&(user.clone(), "update".into())));
+
+    call(
+        &client,
+        "delete_folder",
+        json!({ "folder": root, "with_content": true }),
+    )
+    .await;
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a Passbolt server"]
+async fn moves_share_only_with_access_share() {
+    let sharing = ConfigWith::new("write = true\nshare = true");
+    let client = client_with(&sharing).await;
+    let username = share_with();
+    let found = call(&client, "search_aros", json!({ "search": username })).await;
+    let user = found["items"][0]["id"].as_str().unwrap().to_string();
+    let root = format!("mcp-e2e-move-{}", std::process::id());
+    call(&client, "create_folder", json!({ "name": root })).await;
+    call(
+        &client,
+        "share_folder",
+        json!({ "folder": root, "users": [user], "permission": "read" }),
+    )
+    .await;
+    let make = |name: &str| json!({ "name": format!("{root}-{name}"), "password": "Mv-e2e-1" });
+    let shared = call(&client, "create_resource", make("shared")).await["id"].clone();
+    let kept = call(&client, "create_resource", make("kept")).await["id"].clone();
+
+    // With access.share: the permissions of the folder.
+    let moved = call(
+        &client,
+        "move_resource",
+        json!({ "id": shared, "folder": root }),
+    )
+    .await;
+    assert!(moved["action"]
+        .as_str()
+        .unwrap()
+        .ends_with("with the permissions of the folder"));
+    let permissions = call(&client, "get_permissions", json!({ "resource": shared })).await;
+    assert!(holders(&permissions, "user")
+        .iter()
+        .any(|(holder, _)| holder == &user));
+    client.cancel().await.unwrap();
+
+    // Without: moving into a shared folder shares nothing.
+    let writing = ConfigWith::new("write = true");
+    let client = client_with(&writing).await;
+    let moved = call(
+        &client,
+        "move_resource",
+        json!({ "id": kept, "folder": root }),
+    )
+    .await;
+    assert!(moved["action"]
+        .as_str()
+        .unwrap()
+        .ends_with("its permissions unchanged"));
+    let permissions = call(&client, "get_permissions", json!({ "resource": kept })).await;
+    assert!(!holders(&permissions, "user")
+        .iter()
+        .any(|(holder, _)| holder == &user));
+    call(
+        &client,
+        "delete_folder",
+        json!({ "folder": root, "with_content": true }),
+    )
+    .await;
+    client.cancel().await.unwrap();
+}
