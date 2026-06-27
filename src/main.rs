@@ -15,6 +15,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
+use passbolt_mcp::audit::Audit;
 use passbolt_mcp::config::Config;
 use passbolt_mcp::rules::Rules;
 use passbolt_mcp::server::PassboltMcp;
@@ -171,7 +172,14 @@ async fn serve(config: &Config, http: Option<SocketAddr>) -> anyhow::Result<()> 
         }
     };
     let keep_alive = session.keep_alive();
-    let server = PassboltMcp::new(Arc::clone(&session), Arc::new(rules));
+    let audit = match Audit::open(&config.audit) {
+        Ok(audit) => audit,
+        Err(error) => {
+            session.close().await;
+            return Err(error);
+        }
+    };
+    let server = PassboltMcp::new(Arc::clone(&session), Arc::new(rules), Arc::new(audit));
     let running = async {
         match http {
             None => {

@@ -30,14 +30,20 @@ use passbolt_sdk::resource::view::ResourceView;
 use passbolt_sdk::types::{Folder, UpdateFolderPayload};
 use passbolt_sdk::{build_folder_tree, FolderQuery, GroupQuery, ResourceQuery, UserQuery};
 use rmcp::handler::server::router::tool::ToolRouter;
+use rmcp::handler::server::tool::ToolCallContext;
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{Implementation, ServerCapabilities, ServerConfig};
+use rmcp::model::{
+    CallToolRequestParams, CallToolResponse, Implementation, ServerCapabilities, ServerConfig,
+};
+use rmcp::service::RequestContext;
 use rmcp::{tool, tool_handler, tool_router, Json, ServerHandler};
+use rmcp::{ErrorData, RoleServer};
 use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::{Map, Value};
 use zeroize::Zeroizing;
 
+use crate::audit::Audit;
 use crate::error::ToolError;
 use crate::page::Page;
 use crate::read::{
@@ -66,6 +72,7 @@ const INSTRUCTIONS: &str = "Passbolt, the password manager of the team, through 
 pub struct PassboltMcp {
     session: Arc<Session>,
     rules: Arc<Rules>,
+    audit: Arc<Audit>,
     tool_router: ToolRouter<Self>,
 }
 
@@ -116,11 +123,12 @@ fn needs(tool: &str) -> Option<Access> {
 #[tool_router]
 impl PassboltMcp {
     #[must_use]
-    pub fn new(session: Arc<Session>, rules: Arc<Rules>) -> Self {
+    pub fn new(session: Arc<Session>, rules: Arc<Rules>, audit: Arc<Audit>) -> Self {
         let tool_router = Self::router(&rules);
         Self {
             session,
             rules,
+            audit,
             tool_router,
         }
     }
@@ -1014,6 +1022,22 @@ impl ServerHandler for PassboltMcp {
                 env!("CARGO_PKG_VERSION"),
             ))
             .with_instructions(INSTRUCTIONS)
+    }
+
+    /// Every call goes through here: to the tool, then to the audit file.
+    async fn call_tool(
+        &self,
+        request: CallToolRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResponse, ErrorData> {
+        let tool = request.name.to_string();
+        let arguments = request.arguments.clone();
+        let response = self
+            .tool_router
+            .call(ToolCallContext::new(self, request, context))
+            .await;
+        self.audit.record(&tool, arguments.as_ref(), &response);
+        response
     }
 }
 
