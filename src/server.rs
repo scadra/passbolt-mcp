@@ -30,7 +30,7 @@ use passbolt_sdk::resource::view::ResourceView;
 use passbolt_sdk::types::{Folder, UpdateFolderPayload};
 use passbolt_sdk::{build_folder_tree, FolderQuery, GroupQuery, ResourceQuery, UserQuery};
 use rmcp::handler::server::router::tool::ToolRouter;
-use rmcp::handler::server::tool::ToolCallContext;
+use rmcp::handler::server::tool::{IntoCallToolResult, ToolCallContext};
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, Implementation, ServerCapabilities, ServerConfig,
@@ -45,6 +45,7 @@ use zeroize::Zeroizing;
 
 use crate::audit::Audit;
 use crate::error::ToolError;
+use crate::limits::Limits;
 use crate::page::Page;
 use crate::read::{
     AroView, ById, CommentView, Comments, FolderNode, FolderSummary, FolderTree, GetPermissions,
@@ -73,6 +74,7 @@ pub struct PassboltMcp {
     session: Arc<Session>,
     rules: Arc<Rules>,
     audit: Arc<Audit>,
+    limits: Arc<Limits>,
     tool_router: ToolRouter<Self>,
 }
 
@@ -123,12 +125,18 @@ fn needs(tool: &str) -> Option<Access> {
 #[tool_router]
 impl PassboltMcp {
     #[must_use]
-    pub fn new(session: Arc<Session>, rules: Arc<Rules>, audit: Arc<Audit>) -> Self {
+    pub fn new(
+        session: Arc<Session>,
+        rules: Arc<Rules>,
+        audit: Arc<Audit>,
+        limits: Arc<Limits>,
+    ) -> Self {
         let tool_router = Self::router(&rules);
         Self {
             session,
             rules,
             audit,
+            limits,
             tool_router,
         }
     }
@@ -1024,7 +1032,7 @@ impl ServerHandler for PassboltMcp {
             .with_instructions(INSTRUCTIONS)
     }
 
-    /// Every call goes through here: to the tool, then to the audit file.
+    /// Every call goes through here: the limits, the tool, then the audit file.
     async fn call_tool(
         &self,
         request: CallToolRequestParams,
@@ -1032,10 +1040,14 @@ impl ServerHandler for PassboltMcp {
     ) -> Result<CallToolResponse, ErrorData> {
         let tool = request.name.to_string();
         let arguments = request.arguments.clone();
-        let response = self
-            .tool_router
-            .call(ToolCallContext::new(self, request, context))
-            .await;
+        let response = match self.limits.take(needs(&tool)) {
+            Ok(()) => {
+                self.tool_router
+                    .call(ToolCallContext::new(self, request, context))
+                    .await
+            }
+            Err(refusal) => ToolError::from(refusal).into_call_tool_result(),
+        };
         self.audit.record(&tool, arguments.as_ref(), &response);
         response
     }

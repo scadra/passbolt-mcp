@@ -17,6 +17,7 @@ use std::sync::Arc;
 use clap::{Parser, Subcommand};
 use passbolt_mcp::audit::Audit;
 use passbolt_mcp::config::Config;
+use passbolt_mcp::limits::Limits;
 use passbolt_mcp::rules::Rules;
 use passbolt_mcp::server::PassboltMcp;
 use passbolt_mcp::server_key::{self, Pinned};
@@ -179,7 +180,12 @@ async fn serve(config: &Config, http: Option<SocketAddr>) -> anyhow::Result<()> 
             return Err(error);
         }
     };
-    let server = PassboltMcp::new(Arc::clone(&session), Arc::new(rules), Arc::new(audit));
+    let server = PassboltMcp::new(
+        Arc::clone(&session),
+        Arc::new(rules),
+        Arc::new(audit),
+        Arc::new(Limits::new(&config.limits)),
+    );
     let running = async {
         match http {
             None => {

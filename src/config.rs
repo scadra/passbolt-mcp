@@ -24,6 +24,7 @@ pub struct Config {
     pub access: AccessConfig,
     pub scope: ScopeConfig,
     pub audit: AuditConfig,
+    pub limits: LimitsConfig,
     /// The directory of the file, or the default one: where the server key is pinned.
     #[serde(skip)]
     pub dir: PathBuf,
@@ -80,6 +81,25 @@ pub struct ScopeConfig {
 pub struct AuditConfig {
     /// A JSON Lines file, one line per call; none by default.
     pub file: Option<PathBuf>,
+}
+
+/// `[limits]`: how many calls a minute, so that a runaway agent cannot read every secret.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct LimitsConfig {
+    /// Every tool together.
+    pub calls_per_minute: u32,
+    /// `get_secret`, `get_totp_code` and `check_password_pwned` together.
+    pub secrets_per_minute: u32,
+}
+
+impl Default for LimitsConfig {
+    fn default() -> Self {
+        Self {
+            calls_per_minute: 120,
+            secrets_per_minute: 20,
+        }
+    }
 }
 
 impl Config {

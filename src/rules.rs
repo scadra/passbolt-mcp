@@ -43,6 +43,8 @@ pub enum Refusal {
     NotAllowed(String),
     /// Outside `scope.folders`.
     OutOfScope,
+    /// Over `limits.<key>`.
+    RateLimited(&'static str),
 }
 
 impl fmt::Display for Refusal {
@@ -60,6 +62,10 @@ impl fmt::Display for Refusal {
                 "refused by the MCP rules: access.allow_tools does not list {tool}"
             ),
             Self::OutOfScope => write!(f, "refused by the MCP rules: outside scope.folders"),
+            Self::RateLimited(key) => write!(
+                f,
+                "refused by the MCP rules: over limits.{key}, try again in a minute"
+            ),
         }
     }
 }

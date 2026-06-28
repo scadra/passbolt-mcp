@@ -15,6 +15,7 @@
 pub mod audit;
 pub mod config;
 pub mod error;
+pub mod limits;
 pub mod page;
 pub mod passphrase;
 pub mod read;
