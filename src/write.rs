@@ -31,11 +31,12 @@ pub struct WriteResult {
 impl WriteResult {
     #[must_use]
     pub fn new(dry_run: bool, action: String, id: Option<String>) -> Self {
-        let action = if dry_run {
+        // Names and paths in it are written by people.
+        let action = crate::untrusted::visible(&if dry_run {
             format!("would {action}")
         } else {
             action
-        };
+        });
         Self {
             dry_run,
             action,

@@ -20,6 +20,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::page::PageArgs;
+use crate::untrusted::visible;
 
 /// The name of a Passbolt permission type.
 #[must_use]
@@ -75,9 +76,9 @@ impl ResourceSummary {
     pub fn new(view: &ResourceView, folder_paths: &HashMap<String, String>) -> Self {
         Self {
             id: view.id.clone(),
-            name: view.name.clone(),
-            username: view.username.clone(),
-            uris: view.uris.clone(),
+            name: visible(&view.name),
+            username: visible(&view.username),
+            uris: view.uris.iter().map(|uri| visible(uri)).collect(),
             folder: view
                 .folder_parent_id
                 .as_ref()
@@ -123,11 +124,8 @@ impl FolderSummary {
     pub fn new(folder: &Folder, folder_paths: &HashMap<String, String>) -> Self {
         Self {
             id: folder.id.clone(),
-            name: folder.name.clone(),
-            path: folder_paths
-                .get(&folder.id)
-                .cloned()
-                .unwrap_or_else(|| folder.name.clone()),
+            name: visible(&folder.name),
+            path: visible(folder_paths.get(&folder.id).unwrap_or(&folder.name)),
             permission: permission_name(
                 folder
                     .permission
@@ -160,7 +158,7 @@ impl From<&FolderTreeNode> for FolderNode {
         children.sort_by_cached_key(|child| child.name.to_lowercase());
         Self {
             id: node.folder.id.clone(),
-            name: node.folder.name.clone(),
+            name: visible(&node.folder.name),
             children,
         }
     }
@@ -187,8 +185,11 @@ impl From<&Comment> for CommentView {
         Self {
             id: comment.id.clone(),
             parent_id: comment.parent_id.clone(),
-            author: comment.creator.as_deref().map(crate::session::display_name),
-            content: comment.content.clone(),
+            author: comment
+                .creator
+                .as_deref()
+                .map(|creator| visible(&crate::session::display_name(creator))),
+            content: visible(&comment.content),
             created: comment.created.map(|date| date.to_rfc3339()),
         }
     }
@@ -256,7 +257,7 @@ impl PermissionView {
         };
         Self {
             aro: if is_group { "group" } else { "user" }.into(),
-            name: name.unwrap_or_else(|| id.clone()),
+            name: visible(&name.unwrap_or_else(|| id.clone())),
             id,
             permission: permission_name(permission.permission_type.unwrap_or_default()).into(),
         }
@@ -320,7 +321,7 @@ impl From<&Aro> for AroView {
         Self {
             aro: kind.into(),
             id: aro.id.clone(),
-            name,
+            name: visible(&name),
         }
     }
 }
@@ -349,7 +350,7 @@ impl ResourceDetails {
     pub fn new(view: &ResourceView, folder_paths: &HashMap<String, String>) -> Self {
         Self {
             summary: ResourceSummary::new(view, folder_paths),
-            description: view.description.clone(),
+            description: visible(&view.description),
             created: view.created.map(|date| date.to_rfc3339()),
             modified: view.modified.map(|date| date.to_rfc3339()),
         }

@@ -26,4 +26,5 @@ pub mod server;
 pub mod server_key;
 pub mod session;
 pub mod share;
+pub mod untrusted;
 pub mod write;

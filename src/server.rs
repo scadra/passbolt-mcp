@@ -59,6 +59,7 @@ use crate::secrets::{
 };
 use crate::session::{self, Session};
 use crate::share::{self, ShareFolder, ShareResource, Simulation};
+use crate::untrusted::visible;
 use crate::write::{
     AddComment, CreateFolder, CreateResource, DeleteComment, DeleteFolder, DeleteResource,
     MoveFolder, MoveResource, Place, RenameFolder, SetFavorite, UpdateResource, WriteResult,
@@ -557,10 +558,10 @@ impl PassboltMcp {
         }
         let new_resource = NewResource {
             resource_type: args.resource_type,
-            name: args.name,
-            username: args.username,
-            uris: args.uris,
-            description: args.description,
+            name: visible(&args.name),
+            username: args.username.as_deref().map(visible),
+            uris: args.uris.iter().map(|uri| visible(uri)).collect(),
+            description: args.description.as_deref().map(visible),
             note: args.note,
             password: args.password,
             folder_parent_id: place.id,
@@ -620,10 +621,12 @@ impl PassboltMcp {
             return Ok(Json(WriteResult::new(true, action, Some(args.id))));
         }
         let changes = ResourceChanges {
-            name: args.name,
-            username: args.username,
-            uris: args.uris,
-            description: args.description,
+            name: args.name.as_deref().map(visible),
+            username: args.username.as_deref().map(visible),
+            uris: args
+                .uris
+                .map(|uris| uris.iter().map(|uri| visible(uri)).collect()),
+            description: args.description.as_deref().map(visible),
             note: args.note,
             password: args.password,
             expired: if args.clear_expiry {
@@ -742,7 +745,8 @@ impl PassboltMcp {
         if args.dry_run {
             return Ok(Json(WriteResult::new(true, action, None)));
         }
-        let (name, parent) = (args.name.as_str(), place.id.as_deref());
+        let name = visible(&args.name);
+        let (name, parent) = (name.as_str(), place.id.as_deref());
         let created = self
             .session
             .call(|client| async move { create_folder(&client, name, parent).await })
@@ -759,7 +763,8 @@ impl PassboltMcp {
         let (folder, path) = self.folder_with(&args.folder, 7).await?;
         let action = format!("rename the folder {path} to {}", args.name);
         if !args.dry_run {
-            let (id, name) = (folder.id.as_str(), args.name.as_str());
+            let name = visible(&args.name);
+            let (id, name) = (folder.id.as_str(), name.as_str());
             self.session
                 .call(|client| async move {
                     client
@@ -857,9 +862,10 @@ impl PassboltMcp {
         if args.dry_run {
             return Ok(Json(WriteResult::new(true, action, None)));
         }
+        let content = visible(&args.content);
         let (id, content, parent) = (
             args.id.as_str(),
-            args.content.as_str(),
+            content.as_str(),
             args.parent_id.as_deref(),
         );
         let comment = self
@@ -954,7 +960,7 @@ impl PassboltMcp {
             .call(|client| async move { client.get_users(UserQuery::default()).await })
             .await?;
         Ok(Json(Simulation {
-            action: format!("{whom} the resource {name}"),
+            action: visible(&format!("{whom} the resource {name}")),
             gaining_access: gaining
                 .iter()
                 .map(|id| {
@@ -963,6 +969,7 @@ impl PassboltMcp {
                         .find(|user| &user.id == id)
                         .map_or_else(|| id.clone(), session::display_name)
                 })
+                .map(|name| visible(&name))
                 .collect(),
         }))
     }
