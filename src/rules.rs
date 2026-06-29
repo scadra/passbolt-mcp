@@ -142,6 +142,43 @@ impl Rules {
         rights
     }
 
+    /// What `check` should tell the operator about the shares with the MCP user: what it sees
+    /// beyond the scope, and what the agent could share or delete.
+    pub fn warnings<'a>(
+        &self,
+        resources: impl IntoIterator<Item = (Option<&'a str>, i32)> + Clone,
+        folders: impl IntoIterator<Item = &'a str>,
+    ) -> Vec<String> {
+        let mut warnings = Vec::new();
+        if self.scope.folders().is_some() {
+            let outside = resources
+                .clone()
+                .into_iter()
+                .filter(|(folder, _)| !self.scope.contains(*folder))
+                .count();
+            let outside_folders = folders
+                .into_iter()
+                .filter(|folder| !self.scope.contains(Some(folder)))
+                .count();
+            if outside + outside_folders > 0 {
+                warnings.push(format!(
+                    "{outside} resources and {outside_folders} folders are shared with the MCP \
+                     user outside scope.folders: hidden from the agent, but readable with its key. \
+                     Share them with another user."
+                ));
+            }
+        }
+        let rights = self.rights(resources);
+        if rights.share > 0 {
+            warnings.push(format!(
+                "The agent can share {} resources: the MCP user owns them and access.share is \
+                 true. Give it update instead of owner unless it must share.",
+                rights.share
+            ));
+        }
+        warnings
+    }
+
     /// Whether the agent may act on a resource or folder in `folder_id` (`None`: the root).
     pub fn reaches(&self, folder_id: Option<&str>) -> Result<(), Refusal> {
         if self.scope.contains(folder_id) {
@@ -317,6 +354,25 @@ mod tests {
                 ..Rights::default()
             }
         );
+    }
+
+    #[test]
+    fn warnings() {
+        let folder: passbolt_sdk::types::Folder =
+            serde_json::from_value(serde_json::json!({ "id": "ci", "name": "CI" })).unwrap();
+        let scoped = Rules::new(
+            AccessConfig {
+                share: true,
+                ..AccessConfig::default()
+            },
+            Scope::resolve(&["CI".into()], &[folder]).unwrap(),
+        );
+        let resources = [(Some("ci"), 15), (Some("ops"), 1), (None, 1)];
+        let warnings = scoped.warnings(resources, ["ci", "ops"]);
+        assert_eq!(warnings.len(), 2);
+        assert!(warnings[0].starts_with("2 resources and 1 folders are shared"));
+        assert!(warnings[1].starts_with("The agent can share 1 resources"));
+        assert_eq!(Rules::default().warnings(resources, ["ci", "ops"]).len(), 0);
     }
 
     #[test]
