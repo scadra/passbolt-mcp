@@ -15,7 +15,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
+use passbolt_mcp::audit::Audit;
 use passbolt_mcp::config::Config;
+use passbolt_mcp::limits::Limits;
 use passbolt_mcp::rules::Rules;
 use passbolt_mcp::server::PassboltMcp;
 use passbolt_mcp::server_key::{self, Pinned};
@@ -106,20 +108,28 @@ async fn check(config: &Config) -> anyhow::Result<()> {
     );
     let rules = Rules::load(config, &session).await?;
     print_rules(&rules, folders.len());
-    let rights = rules.rights(resources.iter().map(|resource| {
-        (
-            resource.folder_parent_id.as_deref(),
-            resource
-                .permission
-                .as_ref()
-                .and_then(|permission| permission.permission_type)
-                .unwrap_or_default(),
-        )
-    }));
+    let shared: Vec<_> = resources
+        .iter()
+        .map(|resource| {
+            (
+                resource.folder_parent_id.as_deref(),
+                resource
+                    .permission
+                    .as_ref()
+                    .and_then(|permission| permission.permission_type)
+                    .unwrap_or_default(),
+            )
+        })
+        .collect();
+    let rights = rules.rights(shared.iter().copied());
     println!(
         "The agent can read {} resources, read the secret of {}, change {}, share {}",
         rights.read, rights.secrets, rights.change, rights.share
     );
+    let folder_ids = folders.iter().map(|folder| folder.id.as_str());
+    for warning in rules.warnings(shared.iter().copied(), folder_ids) {
+        println!("Warning: {warning}");
+    }
     session.close().await;
     Ok(())
 }
@@ -171,7 +181,19 @@ async fn serve(config: &Config, http: Option<SocketAddr>) -> anyhow::Result<()> 
         }
     };
     let keep_alive = session.keep_alive();
-    let server = PassboltMcp::new(Arc::clone(&session), Arc::new(rules));
+    let audit = match Audit::open(&config.audit) {
+        Ok(audit) => audit,
+        Err(error) => {
+            session.close().await;
+            return Err(error);
+        }
+    };
+    let server = PassboltMcp::new(
+        Arc::clone(&session),
+        Arc::new(rules),
+        Arc::new(audit),
+        Arc::new(Limits::new(&config.limits)),
+    );
     let running = async {
         match http {
             None => {

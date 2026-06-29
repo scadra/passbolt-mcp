@@ -574,3 +574,60 @@ async fn moves_share_only_with_access_share() {
     .await;
     client.cancel().await.unwrap();
 }
+
+#[tokio::test]
+#[ignore = "needs a Passbolt server"]
+async fn audit_without_secrets() {
+    let dir = tempfile::tempdir().unwrap();
+    let audit = dir.path().join("audit.jsonl");
+    let config = ConfigWith::new(&format!(
+        "write = true\nsecrets = true\n[audit]\nfile = \"{}\"",
+        audit.display()
+    ));
+    let client = client_with(&config).await;
+    let root = format!("mcp-e2e-audit-{}", std::process::id());
+    call(&client, "create_folder", json!({ "name": root })).await;
+    let password = "Audit-me-NOT-7";
+    let created = call(
+        &client,
+        "create_resource",
+        json!({ "name": "audited", "password": password, "note": "a secret note", "folder": root }),
+    )
+    .await;
+    let id = created["id"].clone();
+    let secret = call(&client, "get_secret", json!({ "id": id })).await;
+    assert_eq!(secret["value"], password);
+    refused(&client, "get_secret", json!({ "id": id, "field": "pin" })).await;
+    call(
+        &client,
+        "delete_folder",
+        json!({ "folder": root, "with_content": true }),
+    )
+    .await;
+    client.cancel().await.unwrap();
+
+    let lines = std::fs::read_to_string(&audit).unwrap();
+    let entries: Vec<Value> = lines
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let tools: Vec<&str> = entries
+        .iter()
+        .map(|entry| entry["tool"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        tools,
+        [
+            "create_folder",
+            "create_resource",
+            "get_secret",
+            "get_secret",
+            "delete_folder"
+        ]
+    );
+    assert_eq!(entries[2]["arguments"]["id"], id);
+    assert_eq!(entries[3]["outcome"], "error");
+    for secret in [password, "a secret note", "audited"] {
+        assert!(!lines.contains(secret), "{secret} is in the audit file");
+    }
+}

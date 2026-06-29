@@ -30,15 +30,22 @@ use passbolt_sdk::resource::view::ResourceView;
 use passbolt_sdk::types::{Folder, UpdateFolderPayload};
 use passbolt_sdk::{build_folder_tree, FolderQuery, GroupQuery, ResourceQuery, UserQuery};
 use rmcp::handler::server::router::tool::ToolRouter;
+use rmcp::handler::server::tool::{IntoCallToolResult, ToolCallContext};
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{Implementation, ServerCapabilities, ServerConfig};
+use rmcp::model::{
+    CallToolRequestParams, CallToolResponse, Implementation, ServerCapabilities, ServerConfig,
+};
+use rmcp::service::RequestContext;
 use rmcp::{tool, tool_handler, tool_router, Json, ServerHandler};
+use rmcp::{ErrorData, RoleServer};
 use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::{Map, Value};
 use zeroize::Zeroizing;
 
+use crate::audit::Audit;
 use crate::error::ToolError;
+use crate::limits::Limits;
 use crate::page::Page;
 use crate::read::{
     AroView, ById, CommentView, Comments, FolderNode, FolderSummary, FolderTree, GetPermissions,
@@ -52,6 +59,7 @@ use crate::secrets::{
 };
 use crate::session::{self, Session};
 use crate::share::{self, ShareFolder, ShareResource, Simulation};
+use crate::untrusted::visible;
 use crate::write::{
     AddComment, CreateFolder, CreateResource, DeleteComment, DeleteFolder, DeleteResource,
     MoveFolder, MoveResource, Place, RenameFolder, SetFavorite, UpdateResource, WriteResult,
@@ -66,6 +74,8 @@ const INSTRUCTIONS: &str = "Passbolt, the password manager of the team, through 
 pub struct PassboltMcp {
     session: Arc<Session>,
     rules: Arc<Rules>,
+    audit: Arc<Audit>,
+    limits: Arc<Limits>,
     tool_router: ToolRouter<Self>,
 }
 
@@ -116,11 +126,18 @@ fn needs(tool: &str) -> Option<Access> {
 #[tool_router]
 impl PassboltMcp {
     #[must_use]
-    pub fn new(session: Arc<Session>, rules: Arc<Rules>) -> Self {
+    pub fn new(
+        session: Arc<Session>,
+        rules: Arc<Rules>,
+        audit: Arc<Audit>,
+        limits: Arc<Limits>,
+    ) -> Self {
         let tool_router = Self::router(&rules);
         Self {
             session,
             rules,
+            audit,
+            limits,
             tool_router,
         }
     }
@@ -541,10 +558,10 @@ impl PassboltMcp {
         }
         let new_resource = NewResource {
             resource_type: args.resource_type,
-            name: args.name,
-            username: args.username,
-            uris: args.uris,
-            description: args.description,
+            name: visible(&args.name),
+            username: args.username.as_deref().map(visible),
+            uris: args.uris.iter().map(|uri| visible(uri)).collect(),
+            description: args.description.as_deref().map(visible),
             note: args.note,
             password: args.password,
             folder_parent_id: place.id,
@@ -604,10 +621,12 @@ impl PassboltMcp {
             return Ok(Json(WriteResult::new(true, action, Some(args.id))));
         }
         let changes = ResourceChanges {
-            name: args.name,
-            username: args.username,
-            uris: args.uris,
-            description: args.description,
+            name: args.name.as_deref().map(visible),
+            username: args.username.as_deref().map(visible),
+            uris: args
+                .uris
+                .map(|uris| uris.iter().map(|uri| visible(uri)).collect()),
+            description: args.description.as_deref().map(visible),
             note: args.note,
             password: args.password,
             expired: if args.clear_expiry {
@@ -726,7 +745,8 @@ impl PassboltMcp {
         if args.dry_run {
             return Ok(Json(WriteResult::new(true, action, None)));
         }
-        let (name, parent) = (args.name.as_str(), place.id.as_deref());
+        let name = visible(&args.name);
+        let (name, parent) = (name.as_str(), place.id.as_deref());
         let created = self
             .session
             .call(|client| async move { create_folder(&client, name, parent).await })
@@ -743,7 +763,8 @@ impl PassboltMcp {
         let (folder, path) = self.folder_with(&args.folder, 7).await?;
         let action = format!("rename the folder {path} to {}", args.name);
         if !args.dry_run {
-            let (id, name) = (folder.id.as_str(), args.name.as_str());
+            let name = visible(&args.name);
+            let (id, name) = (folder.id.as_str(), name.as_str());
             self.session
                 .call(|client| async move {
                     client
@@ -841,9 +862,10 @@ impl PassboltMcp {
         if args.dry_run {
             return Ok(Json(WriteResult::new(true, action, None)));
         }
+        let content = visible(&args.content);
         let (id, content, parent) = (
             args.id.as_str(),
-            args.content.as_str(),
+            content.as_str(),
             args.parent_id.as_deref(),
         );
         let comment = self
@@ -938,7 +960,7 @@ impl PassboltMcp {
             .call(|client| async move { client.get_users(UserQuery::default()).await })
             .await?;
         Ok(Json(Simulation {
-            action: format!("{whom} the resource {name}"),
+            action: visible(&format!("{whom} the resource {name}")),
             gaining_access: gaining
                 .iter()
                 .map(|id| {
@@ -947,6 +969,7 @@ impl PassboltMcp {
                         .find(|user| &user.id == id)
                         .map_or_else(|| id.clone(), session::display_name)
                 })
+                .map(|name| visible(&name))
                 .collect(),
         }))
     }
@@ -1014,6 +1037,26 @@ impl ServerHandler for PassboltMcp {
                 env!("CARGO_PKG_VERSION"),
             ))
             .with_instructions(INSTRUCTIONS)
+    }
+
+    /// Every call goes through here: the limits, the tool, then the audit file.
+    async fn call_tool(
+        &self,
+        request: CallToolRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResponse, ErrorData> {
+        let tool = request.name.to_string();
+        let arguments = request.arguments.clone();
+        let response = match self.limits.take(needs(&tool)) {
+            Ok(()) => {
+                self.tool_router
+                    .call(ToolCallContext::new(self, request, context))
+                    .await
+            }
+            Err(refusal) => ToolError::from(refusal).into_call_tool_result(),
+        };
+        self.audit.record(&tool, arguments.as_ref(), &response);
+        response
     }
 }
 

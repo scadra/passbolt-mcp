@@ -34,6 +34,9 @@ folders = ["Agents/CI"]
 
 [audit]
 file = "/var/log/passbolt-mcp/audit.jsonl"
+
+[limits]
+secrets_per_minute = 20
 ```
 
 Without a file, every rule takes its default: read only, no secrets, no sharing, every folder the
@@ -88,10 +91,29 @@ does not see stops `passbolt-mcp` at start, rather than leaving the agent with l
 
 | Key | Default | What |
 |---|---|---|
-| `file` | none | a JSON Lines file: one line per call, with the tool, the ids, the decision of the rules and the result; never a secret |
+| `file` | none | a JSON Lines file, created readable by its owner only: one line per call |
+
+```json
+{"time":"2026-06-29T15:20:04.600Z","tool":"get_secret","arguments":{"id":"8f0b…"},"outcome":"ok"}
+{"time":"2026-06-29T15:20:05.112Z","tool":"get_secret","arguments":{"id":"8f0b…"},"outcome":"refused","code":"refused"}
+```
+
+`outcome` is `ok`, `refused` (by the rules), `error` (Passbolt or the arguments) or `protocol`
+(an unknown tool). Only the arguments that name things are written: ids, folders, users, groups,
+permissions, fields, `dry_run`. Never passwords, notes, descriptions, comments nor names.
 
 Passbolt keeps its own record of what the MCP user did; this file adds what the agent asked and was
 refused.
+
+## `[limits]`: how fast
+
+| Key | Default | What |
+|---|---|---|
+| `calls_per_minute` | `120` | every tool together |
+| `secrets_per_minute` | `20` | `get_secret`, `get_totp_code` and `check_password_pwned` together |
+
+Over a limit, a call is refused (`refused by the MCP rules: over limits.secrets_per_minute…`)
+until the calls of the last minute make room: a runaway agent cannot read every secret at once.
 
 ## Effective rights
 
@@ -113,6 +135,10 @@ Rules: read, secrets, no write, no share
 Scope: 2 of the 6 folders
 The agent can read 12 resources, read the secret of 12, change 0, share 0
 ```
+
+It warns when the shares are broader than the rules: resources shared with the MCP user outside
+`scope.folders` (hidden from the agent, but readable with its key), and resources the agent could
+share because the MCP user owns them.
 
 ## Refusals
 
