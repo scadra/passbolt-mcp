@@ -326,6 +326,15 @@ impl From<&Aro> for AroView {
     }
 }
 
+/// `passbolt://folder/{id}`: a folder and the resources directly in it.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct FolderContents {
+    pub folder: FolderSummary,
+    pub resources: Vec<ResourceSummary>,
+    /// More resources are in it than listed: `list_resources` with this folder pages them.
+    pub truncated: bool,
+}
+
 /// An id, for the tools that take one.
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ById {

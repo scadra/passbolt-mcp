@@ -46,6 +46,11 @@ impl ToolError {
         Self::new("invalid_argument", message)
     }
 
+    #[must_use]
+    pub const fn not_found(message: String) -> Self {
+        Self::new("not_found", message)
+    }
+
     /// What the permission of the MCP user does not allow, known before asking Passbolt.
     #[must_use]
     pub const fn forbidden(message: String) -> Self {
