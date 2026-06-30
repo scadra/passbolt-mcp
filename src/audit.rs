@@ -87,9 +87,31 @@ impl Audit {
         arguments: Option<&JsonObject>,
         response: &Result<CallToolResponse, rmcp::ErrorData>,
     ) {
+        if self.file.is_some() {
+            self.write(&entry(tool, arguments, response));
+        }
+    }
+
+    /// Write the line of a request that is not a tool call, such as `resources/read`.
+    pub fn record_request(&self, method: &str, arguments: Map<String, Value>, error: Option<&str>) {
+        if self.file.is_some() {
+            self.write(&Entry {
+                time: now(),
+                tool: method.into(),
+                arguments,
+                outcome: match error {
+                    None => "ok",
+                    Some("refused") => "refused",
+                    Some(_) => "error",
+                },
+                code: error.map(String::from),
+            });
+        }
+    }
+
+    fn write(&self, entry: &Entry) {
         let Some(file) = &self.file else { return };
-        let entry = entry(tool, arguments, response);
-        let mut line = match serde_json::to_vec(&entry) {
+        let mut line = match serde_json::to_vec(entry) {
             Ok(line) => line,
             Err(error) => return tracing::warn!("audit: {error}"),
         };
@@ -135,12 +157,16 @@ pub fn entry(
         Err(error) => ("protocol", Some(error.message.to_string())),
     };
     Entry {
-        time: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        time: now(),
         tool: tool.into(),
         arguments,
         outcome,
         code,
     }
+}
+
+fn now() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
 #[cfg(test)]

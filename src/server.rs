@@ -211,7 +211,12 @@ impl PassboltMcp {
         &self,
         Parameters(ById { id }): Parameters<ById>,
     ) -> Result<Json<ResourceDetails>, ToolError> {
-        let resource = self.resource_in_scope(&id).await?;
+        Ok(Json(self.resource_details(&id).await?))
+    }
+
+    /// What `get_resource` and `passbolt://resource/{id}` give.
+    async fn resource_details(&self, id: &str) -> Result<ResourceDetails, ToolError> {
+        let resource = self.resource_in_scope(id).await?;
         let client = self.session.client().await;
         let metadata = client.decrypt_resource_metadata(&resource).await?;
         let resource_types = client.resource_types().await?;
@@ -219,8 +224,8 @@ impl PassboltMcp {
         let paths = folder_paths(&self.all_folders().await?);
         let mut details = ResourceDetails::new(&view, &paths);
         // A single resource comes without its favorite.
-        details.summary.favorite = self.favorite_of(&id).await?.is_some();
-        Ok(Json(details))
+        details.summary.favorite = self.favorite_of(id).await?.is_some();
+        Ok(details)
     }
 
     /// The id of the favorite the MCP user has on the resource `id`, if any.
