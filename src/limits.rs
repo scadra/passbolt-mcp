@@ -58,6 +58,7 @@ impl Window {
 }
 
 pub struct Limits {
+    config: LimitsConfig,
     calls: Window,
     secrets: Window,
 }
@@ -66,9 +67,15 @@ impl Limits {
     #[must_use]
     pub fn new(config: &LimitsConfig) -> Self {
         Self {
+            config: config.clone(),
             calls: Window::new(config.calls_per_minute),
             secrets: Window::new(config.secrets_per_minute),
         }
+    }
+
+    #[must_use]
+    pub const fn config(&self) -> &LimitsConfig {
+        &self.config
     }
 
     /// Count a call needing `needs`, unless it is over a limit.

@@ -29,6 +29,7 @@ use passbolt_sdk::resource::update::{update_resource, ResourceChanges};
 use passbolt_sdk::resource::view::ResourceView;
 use passbolt_sdk::types::{Folder, UpdateFolderPayload};
 use passbolt_sdk::{build_folder_tree, FolderQuery, GroupQuery, ResourceQuery, UserQuery};
+use rmcp::handler::server::router::prompt::PromptRouter;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::tool::{IntoCallToolResult, ToolCallContext};
 use rmcp::handler::server::wrapper::Parameters;
@@ -38,8 +39,11 @@ use rmcp::model::{
     ReadResourceResult, Resource, ResourceContents, ResourceTemplate, ServerCapabilities,
     ServerConfig,
 };
+use rmcp::model::{PromptMessage, Role};
 use rmcp::service::RequestContext;
-use rmcp::{tool, tool_handler, tool_router, Json, ServerHandler};
+use rmcp::{
+    prompt, prompt_handler, prompt_router, tool, tool_handler, tool_router, Json, ServerHandler,
+};
 use rmcp::{ErrorData, RoleServer};
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -50,6 +54,7 @@ use crate::audit::Audit;
 use crate::error::ToolError;
 use crate::limits::Limits;
 use crate::page::Page;
+use crate::prompts::{self, AuditArgs, RotateArgs};
 use crate::read::{
     AroView, ById, CommentView, Comments, FolderContents, FolderNode, FolderSummary, FolderTree,
     GetPermissions, ListFolders, ListResources, PermissionView, Permissions, ResourceDetails,
@@ -80,6 +85,7 @@ pub struct PassboltMcp {
     audit: Arc<Audit>,
     limits: Arc<Limits>,
     tool_router: ToolRouter<Self>,
+    prompt_router: PromptRouter<Self>,
 }
 
 /// `whoami`.
@@ -149,12 +155,14 @@ impl PassboltMcp {
         limits: Arc<Limits>,
     ) -> Self {
         let tool_router = Self::router(&rules);
+        let prompt_router = Self::prompts(&rules);
         Self {
             session,
             rules,
             audit,
             limits,
             tool_router,
+            prompt_router,
         }
     }
 
@@ -1083,15 +1091,51 @@ impl PassboltMcp {
     }
 }
 
+#[prompt_router]
+impl PassboltMcp {
+    /// The prompts the rules allow: `rotate_password` needs `access.write` and `access.secrets`.
+    fn prompts(rules: &Rules) -> PromptRouter<Self> {
+        let mut router = Self::prompt_router();
+        let access = rules.access();
+        if !(access.write && access.secrets) {
+            router.remove_route("rotate_password");
+        }
+        router
+    }
+
+    /// Find the expired, expiring and breached passwords, and say what to do.
+    #[prompt]
+    async fn audit_password_hygiene(
+        &self,
+        Parameters(args): Parameters<AuditArgs>,
+    ) -> Vec<PromptMessage> {
+        vec![PromptMessage::new_text(
+            Role::User,
+            prompts::audit(&args, self.rules.access(), self.limits.config()),
+        )]
+    }
+
+    /// Give a resource a new password, generated, checked and saved in Passbolt.
+    #[prompt]
+    async fn rotate_password(
+        &self,
+        Parameters(args): Parameters<RotateArgs>,
+    ) -> Vec<PromptMessage> {
+        vec![PromptMessage::new_text(Role::User, prompts::rotate(&args))]
+    }
+}
+
 // The methods the macro writes are async without awaiting.
 #[allow(clippy::unused_async_trait_impl)]
 #[tool_handler(router = self.tool_router)]
+#[prompt_handler(router = self.prompt_router)]
 impl ServerHandler for PassboltMcp {
     fn get_info(&self) -> ServerConfig {
         ServerConfig::new(
             ServerCapabilities::builder()
                 .enable_tools()
                 .enable_resources()
+                .enable_prompts()
                 .build(),
         )
         .with_server_info(Implementation::new(
@@ -1233,5 +1277,33 @@ mod tests {
             ..AccessConfig::default()
         };
         assert!(!tools(access).contains(&"whoami".to_string()));
+    }
+}
+
+#[cfg(test)]
+mod prompt_tests {
+    use super::*;
+    use crate::config::AccessConfig;
+    use crate::scope::Scope;
+
+    fn prompts(access: AccessConfig) -> Vec<String> {
+        PassboltMcp::prompts(&Rules::new(access, Scope::default()))
+            .list_all()
+            .into_iter()
+            .map(|prompt| prompt.name)
+            .collect()
+    }
+
+    #[test]
+    fn rotation_needs_write_and_secrets() {
+        assert_eq!(prompts(AccessConfig::default()), ["audit_password_hygiene"]);
+        let both = AccessConfig {
+            write: true,
+            secrets: true,
+            ..AccessConfig::default()
+        };
+        let mut offered = prompts(both);
+        offered.sort();
+        assert_eq!(offered, ["audit_password_hygiene", "rotate_password"]);
     }
 }
