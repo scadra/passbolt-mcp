@@ -5,7 +5,7 @@ sidebar_position: 4
 
 # Tools
 
-What the agent can call. A tool is offered only when the [rules](rules.md) allow it, and acts only
+What the agent can call: tools, and the [resources](#resources) and [prompts](#prompts) below. A tool is offered only when the [rules](rules.md) allow it, and acts only
 on what is shared with the [MCP user](guides/mcp-user.md) inside `scope.folders`.
 
 This page is filled as the tools are written.
@@ -89,3 +89,26 @@ With `access.share` and when the MCP user owns it, `move_resource` and `move_fol
 the permissions of its new folder, as the browser extension does. Otherwise a move leaves the
 permissions as they are, and says so: moving a resource into a shared folder never shares it
 without `access.share`.
+
+## Resources
+
+MCP resources, for the clients that attach context rather than call tools. Metadata only, never a
+secret, within `scope.folders`, counted in `limits.calls_per_minute` and written to the audit file
+(`resources/read`).
+
+| URI | What |
+|---|---|
+| `passbolt://resource/{id}` | what `get_resource` gives |
+| `passbolt://folder/{id}` | the folder and the resources directly in it (200 at most; `truncated` says when there are more) |
+
+`resources/list` lists the folders the agent can see, in pages; resources are read from their id,
+as `list_resources` gives it: listing every resource would decrypt them all at each listing.
+
+## Prompts
+
+Tasks the agent runs with the tools above, written for the rules of the server.
+
+| Prompt | Arguments | Offered | What |
+|---|---|---|---|
+| `audit_password_hygiene` | `folder` | always | expired, expiring and, with `access.secrets`, breached passwords, as a table; it paces the breach checks to `limits.secrets_per_minute` |
+| `rotate_password` | `id` | with `access.write` and `access.secrets` | a new password, generated, saved with a dry run first, checked against breaches; the person then sets it on the service |

@@ -18,6 +18,7 @@ pub mod error;
 pub mod limits;
 pub mod page;
 pub mod passphrase;
+pub mod prompts;
 pub mod read;
 pub mod rules;
 pub mod scope;

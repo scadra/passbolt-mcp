@@ -29,14 +29,21 @@ use passbolt_sdk::resource::update::{update_resource, ResourceChanges};
 use passbolt_sdk::resource::view::ResourceView;
 use passbolt_sdk::types::{Folder, UpdateFolderPayload};
 use passbolt_sdk::{build_folder_tree, FolderQuery, GroupQuery, ResourceQuery, UserQuery};
+use rmcp::handler::server::router::prompt::PromptRouter;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::tool::{IntoCallToolResult, ToolCallContext};
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{
-    CallToolRequestParams, CallToolResponse, Implementation, ServerCapabilities, ServerConfig,
+    CallToolRequestParams, CallToolResponse, Implementation, ListResourceTemplatesResult,
+    ListResourcesResult, PaginatedRequestParams, ReadResourceRequestParams, ReadResourceResponse,
+    ReadResourceResult, Resource, ResourceContents, ResourceTemplate, ServerCapabilities,
+    ServerConfig,
 };
+use rmcp::model::{PromptMessage, Role};
 use rmcp::service::RequestContext;
-use rmcp::{tool, tool_handler, tool_router, Json, ServerHandler};
+use rmcp::{
+    prompt, prompt_handler, prompt_router, tool, tool_handler, tool_router, Json, ServerHandler,
+};
 use rmcp::{ErrorData, RoleServer};
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -47,10 +54,11 @@ use crate::audit::Audit;
 use crate::error::ToolError;
 use crate::limits::Limits;
 use crate::page::Page;
+use crate::prompts::{self, AuditArgs, RotateArgs};
 use crate::read::{
-    AroView, ById, CommentView, Comments, FolderNode, FolderSummary, FolderTree, GetPermissions,
-    ListFolders, ListResources, PermissionView, Permissions, ResourceDetails, ResourceSummary,
-    ResourceTypeView, ResourceTypes, SearchAros,
+    AroView, ById, CommentView, Comments, FolderContents, FolderNode, FolderSummary, FolderTree,
+    GetPermissions, ListFolders, ListResources, PermissionView, Permissions, ResourceDetails,
+    ResourceSummary, ResourceTypeView, ResourceTypes, SearchAros,
 };
 use crate::rules::{Access, Rules};
 use crate::scope::{find_folder, folder_paths};
@@ -77,6 +85,7 @@ pub struct PassboltMcp {
     audit: Arc<Audit>,
     limits: Arc<Limits>,
     tool_router: ToolRouter<Self>,
+    prompt_router: PromptRouter<Self>,
 }
 
 /// `whoami`.
@@ -98,6 +107,19 @@ const fn moved_permissions(with_permissions: bool) -> &'static str {
         "with the permissions of the folder"
     } else {
         "its permissions unchanged"
+    }
+}
+
+const RESOURCE_URI: &str = "passbolt://resource/";
+const FOLDER_URI: &str = "passbolt://folder/";
+
+/// The JSON-RPC error of a failed resource read.
+fn error_data(error: ToolError) -> ErrorData {
+    let data = serde_json::to_value(&error).ok();
+    if error.code == "not_found" {
+        ErrorData::resource_not_found(error.message, data)
+    } else {
+        ErrorData::invalid_params(error.message, data)
     }
 }
 
@@ -133,12 +155,14 @@ impl PassboltMcp {
         limits: Arc<Limits>,
     ) -> Self {
         let tool_router = Self::router(&rules);
+        let prompt_router = Self::prompts(&rules);
         Self {
             session,
             rules,
             audit,
             limits,
             tool_router,
+            prompt_router,
         }
     }
 
@@ -211,7 +235,48 @@ impl PassboltMcp {
         &self,
         Parameters(ById { id }): Parameters<ById>,
     ) -> Result<Json<ResourceDetails>, ToolError> {
-        let resource = self.resource_in_scope(&id).await?;
+        Ok(Json(self.resource_details(&id).await?))
+    }
+
+    /// The JSON of a `passbolt://` URI.
+    async fn read(&self, uri: &str) -> Result<String, ToolError> {
+        let json = if let Some(id) = uri.strip_prefix(RESOURCE_URI) {
+            serde_json::to_string(&self.resource_details(id).await?)
+        } else if let Some(id) = uri.strip_prefix(FOLDER_URI) {
+            let folders = self.all_folders().await?;
+            let folder = folders
+                .iter()
+                .find(|folder| folder.id == id)
+                .ok_or_else(|| ToolError::not_found(format!("no folder {id}")))?;
+            self.rules.reaches(Some(&folder.id))?;
+            let paths = folder_paths(&folders);
+            let page = self
+                .list_resources(Parameters(ListResources {
+                    folder: Some(id.into()),
+                    page: crate::page::PageArgs {
+                        limit: Some(200),
+                        cursor: None,
+                    },
+                    ..ListResources::default()
+                }))
+                .await?
+                .0;
+            serde_json::to_string(&FolderContents {
+                folder: FolderSummary::new(folder, &paths),
+                truncated: page.next_cursor.is_some(),
+                resources: page.items,
+            })
+        } else {
+            return Err(ToolError::invalid_argument(format!(
+                "{uri}: not a passbolt://resource/ nor passbolt://folder/ URI"
+            )));
+        };
+        json.map_err(|error| ToolError::from(anyhow::Error::from(error)))
+    }
+
+    /// What `get_resource` and `passbolt://resource/{id}` give.
+    async fn resource_details(&self, id: &str) -> Result<ResourceDetails, ToolError> {
+        let resource = self.resource_in_scope(id).await?;
         let client = self.session.client().await;
         let metadata = client.decrypt_resource_metadata(&resource).await?;
         let resource_types = client.resource_types().await?;
@@ -219,8 +284,8 @@ impl PassboltMcp {
         let paths = folder_paths(&self.all_folders().await?);
         let mut details = ResourceDetails::new(&view, &paths);
         // A single resource comes without its favorite.
-        details.summary.favorite = self.favorite_of(&id).await?.is_some();
-        Ok(Json(details))
+        details.summary.favorite = self.favorite_of(id).await?.is_some();
+        Ok(details)
     }
 
     /// The id of the favorite the MCP user has on the resource `id`, if any.
@@ -1026,17 +1091,127 @@ impl PassboltMcp {
     }
 }
 
+#[prompt_router]
+impl PassboltMcp {
+    /// The prompts the rules allow: `rotate_password` needs `access.write` and `access.secrets`.
+    fn prompts(rules: &Rules) -> PromptRouter<Self> {
+        let mut router = Self::prompt_router();
+        let access = rules.access();
+        if !(access.write && access.secrets) {
+            router.remove_route("rotate_password");
+        }
+        router
+    }
+
+    /// Find the expired, expiring and breached passwords, and say what to do.
+    #[prompt]
+    async fn audit_password_hygiene(
+        &self,
+        Parameters(args): Parameters<AuditArgs>,
+    ) -> Vec<PromptMessage> {
+        vec![PromptMessage::new_text(
+            Role::User,
+            prompts::audit(&args, self.rules.access(), self.limits.config()),
+        )]
+    }
+
+    /// Give a resource a new password, generated, checked and saved in Passbolt.
+    #[prompt]
+    async fn rotate_password(
+        &self,
+        Parameters(args): Parameters<RotateArgs>,
+    ) -> Vec<PromptMessage> {
+        vec![PromptMessage::new_text(Role::User, prompts::rotate(&args))]
+    }
+}
+
 // The methods the macro writes are async without awaiting.
 #[allow(clippy::unused_async_trait_impl)]
 #[tool_handler(router = self.tool_router)]
+#[prompt_handler(router = self.prompt_router)]
 impl ServerHandler for PassboltMcp {
     fn get_info(&self) -> ServerConfig {
-        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
-            .with_server_info(Implementation::new(
-                env!("CARGO_PKG_NAME"),
-                env!("CARGO_PKG_VERSION"),
-            ))
-            .with_instructions(INSTRUCTIONS)
+        ServerConfig::new(
+            ServerCapabilities::builder()
+                .enable_tools()
+                .enable_resources()
+                .enable_prompts()
+                .build(),
+        )
+        .with_server_info(Implementation::new(
+            env!("CARGO_PKG_NAME"),
+            env!("CARGO_PKG_VERSION"),
+        ))
+        .with_instructions(INSTRUCTIONS)
+    }
+
+    async fn list_resource_templates(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListResourceTemplatesResult, ErrorData> {
+        Ok(ListResourceTemplatesResult::with_all_items(vec![
+            ResourceTemplate::new(format!("{RESOURCE_URI}{{id}}"), "resource")
+                .with_description("A resource: its metadata, never its secret")
+                .with_mime_type("application/json"),
+            ResourceTemplate::new(format!("{FOLDER_URI}{{id}}"), "folder")
+                .with_description("A folder and the resources directly in it")
+                .with_mime_type("application/json"),
+        ]))
+    }
+
+    /// The folders the agent can see; resources are read by their URI, from their id.
+    async fn list_resources(
+        &self,
+        request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListResourcesResult, ErrorData> {
+        let folders = self.all_folders().await.map_err(error_data)?;
+        let paths = folder_paths(&folders);
+        let mut found: Vec<Resource> = folders
+            .iter()
+            .filter(|folder| self.rules.reaches(Some(&folder.id)).is_ok())
+            .map(|folder| {
+                let path = paths.get(&folder.id).unwrap_or(&folder.name);
+                Resource::new(format!("{FOLDER_URI}{}", folder.id), visible(path))
+                    .with_mime_type("application/json")
+            })
+            .collect();
+        found.sort_by_cached_key(|resource| resource.name.to_lowercase());
+        let page = crate::page::PageArgs {
+            limit: None,
+            cursor: request.and_then(|request| request.cursor),
+        }
+        .page(found)
+        .map_err(error_data)?;
+        let mut result = ListResourcesResult::with_all_items(page.items);
+        result.next_cursor = page.next_cursor;
+        Ok(result)
+    }
+
+    /// `passbolt://resource/{id}` or `passbolt://folder/{id}`, within the rules and the limits.
+    async fn read_resource(
+        &self,
+        request: ReadResourceRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ReadResourceResponse, ErrorData> {
+        let uri = request.uri;
+        let read = match self.limits.take(Some(Access::Read)) {
+            Ok(()) => self.read(&uri).await,
+            Err(refusal) => Err(ToolError::from(refusal)),
+        };
+        let mut arguments = serde_json::Map::new();
+        arguments.insert("uri".into(), uri.clone().into());
+        self.audit.record_request(
+            "resources/read",
+            arguments,
+            read.as_ref().err().map(|error| error.code),
+        );
+        let text = read.map_err(error_data)?;
+        Ok(ReadResourceResult::new(vec![
+            ResourceContents::text(text, uri).with_mime_type("application/json")
+        ])
+        .into())
     }
 
     /// Every call goes through here: the limits, the tool, then the audit file.
@@ -1102,5 +1277,33 @@ mod tests {
             ..AccessConfig::default()
         };
         assert!(!tools(access).contains(&"whoami".to_string()));
+    }
+}
+
+#[cfg(test)]
+mod prompt_tests {
+    use super::*;
+    use crate::config::AccessConfig;
+    use crate::scope::Scope;
+
+    fn prompts(access: AccessConfig) -> Vec<String> {
+        PassboltMcp::prompts(&Rules::new(access, Scope::default()))
+            .list_all()
+            .into_iter()
+            .map(|prompt| prompt.name)
+            .collect()
+    }
+
+    #[test]
+    fn rotation_needs_write_and_secrets() {
+        assert_eq!(prompts(AccessConfig::default()), ["audit_password_hygiene"]);
+        let both = AccessConfig {
+            write: true,
+            secrets: true,
+            ..AccessConfig::default()
+        };
+        let mut offered = prompts(both);
+        offered.sort();
+        assert_eq!(offered, ["audit_password_hygiene", "rotate_password"]);
     }
 }

@@ -631,3 +631,91 @@ async fn audit_without_secrets() {
         assert!(!lines.contains(secret), "{secret} is in the audit file");
     }
 }
+
+/// The JSON text of a `passbolt://` resource.
+async fn read(client: &RunningService<RoleClient, ()>, uri: &str) -> Value {
+    let result = client
+        .read_resource(rmcp::model::ReadResourceRequestParams::new(uri))
+        .await
+        .unwrap();
+    let rmcp::model::ResourceContents::TextResourceContents { text, .. } = &result.contents[0]
+    else {
+        panic!("not text");
+    };
+    serde_json::from_str(text).unwrap()
+}
+
+#[tokio::test]
+#[ignore = "needs a Passbolt server"]
+async fn resources() {
+    let config = ConfigWith::new("write = true");
+    let client = client_with(&config).await;
+    let root = format!("mcp-e2e-resources-{}", std::process::id());
+    let folder = call(&client, "create_folder", json!({ "name": root })).await["id"].clone();
+    let created = call(
+        &client,
+        "create_resource",
+        json!({ "name": format!("{root}-db"), "password": "Res-e2e-1", "folder": root }),
+    )
+    .await;
+    let folder_uri = format!("passbolt://folder/{}", folder.as_str().unwrap());
+
+    let listed = client.list_all_resources().await.unwrap();
+    assert!(listed.iter().any(|resource| resource.uri == folder_uri));
+    let contents = read(&client, &folder_uri).await;
+    assert_eq!(contents["folder"]["path"], root.as_str());
+    assert_eq!(contents["resources"][0]["id"], created["id"]);
+    let resource = read(
+        &client,
+        &format!("passbolt://resource/{}", created["id"].as_str().unwrap()),
+    )
+    .await;
+    assert_eq!(resource["name"], format!("{root}-db"));
+    assert!(resource.get("password").is_none());
+    assert!(client
+        .read_resource(rmcp::model::ReadResourceRequestParams::new(
+            "https://example.com"
+        ))
+        .await
+        .is_err());
+
+    call(
+        &client,
+        "delete_folder",
+        json!({ "folder": root, "with_content": true }),
+    )
+    .await;
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a Passbolt server"]
+async fn prompts() {
+    let client = client().await;
+    let names: Vec<String> = client
+        .list_all_prompts()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|prompt| prompt.name)
+        .collect();
+    assert_eq!(names, ["audit_password_hygiene"]);
+    let prompt = client
+        .get_prompt(rmcp::model::GetPromptRequestParams::new(
+            "audit_password_hygiene",
+        ))
+        .await
+        .unwrap();
+    let text = serde_json::to_string(&prompt.messages).unwrap();
+    assert!(text.contains("list_resources"));
+    assert!(text.contains("access.secrets is false"));
+    client.cancel().await.unwrap();
+
+    let config = ConfigWith::new("write = true\nsecrets = true");
+    let client = client_with(&config).await;
+    let prompts = client.list_all_prompts().await.unwrap();
+    assert!(prompts
+        .iter()
+        .any(|prompt| prompt.name == "rotate_password"));
+    client.cancel().await.unwrap();
+}
