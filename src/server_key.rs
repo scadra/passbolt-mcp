@@ -37,7 +37,7 @@ pub fn http_client(config: &PassboltConfig) -> Result<NativeHttpClient> {
             .iter()
             .map(|entry| parse_resolve(entry))
             .collect::<Result<_>>()?,
-        timeout: Some(Duration::from_secs(60)),
+        timeout: Some(Duration::from_secs(config.timeout_seconds.unwrap_or(60))),
     })?)
 }
 

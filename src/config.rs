@@ -45,6 +45,8 @@ pub struct PassboltConfig {
     pub tls_skip_verify: bool,
     /// `host:port:address`, like `curl --resolve`.
     pub resolve: Vec<String>,
+    /// How long a request to the server may take [default: 60]
+    pub timeout_seconds: Option<u64>,
 }
 
 /// `passbolt-mcp.toml` in the configuration directory of the system.

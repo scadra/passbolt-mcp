@@ -54,6 +54,7 @@ MCP user can see.
 | `server_key_file` | the server key pinned by `passbolt-mcp verify`; `server-key.asc` next to this file by default |
 | `tls_skip_verify` | accept any certificate: for a test server only |
 | `resolve` | `["host:port:address"]`, like `curl --resolve` |
+| `timeout_seconds` | how long a request to the server may take; 60 by default. Listing every resource of a large server takes longer |
 
 Relative paths are relative to the directory of this file. The first line of `passphrase_file`,
 `totp_secret_file` or of the output of `passphrase_command` is used.
