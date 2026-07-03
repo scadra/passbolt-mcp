@@ -16,6 +16,7 @@
 
 pub mod data;
 pub mod fake;
+pub mod http;
 pub mod keys;
 
 pub use fake::FakePassbolt;
