@@ -7,6 +7,8 @@
 ######################
 .env
 *.asc
+# The test keys are public by design.
+!tests/fixtures/keys/*.asc
 *.gpg
 *.pem
 *.key
