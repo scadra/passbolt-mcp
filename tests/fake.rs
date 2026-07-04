@@ -17,6 +17,10 @@ mod common;
 use std::path::PathBuf;
 
 use common::{data, http, FakePassbolt, ADA, BETTY, RESOURCE_ID, SERVER};
+use rmcp::model::CallToolRequestParams;
+use rmcp::service::RunningService;
+use rmcp::transport::{ConfigureCommandExt, TokioChildProcess};
+use rmcp::{RoleClient, ServiceExt};
 use serde_json::{json, Value};
 
 /// A configuration directory for ada on the fake at `base_url`, with `extra` appended.
@@ -153,4 +157,55 @@ async fn refuses_an_impostor() {
     let (ok, _, stderr) = Setup::new(&url, true, "").run(&["check"]).await;
     assert!(!ok);
     assert!(stderr.contains("Server identity mismatch"), "{stderr}");
+}
+
+async fn client(setup: &Setup) -> RunningService<RoleClient, ()> {
+    let config = setup.config();
+    let command =
+        tokio::process::Command::new(env!("CARGO_BIN_EXE_passbolt-mcp")).configure(|command| {
+            command.arg("--config").arg(&config).arg("serve");
+        });
+    ().serve(TokioChildProcess::new(command).unwrap())
+        .await
+        .unwrap()
+}
+
+async fn call(client: &RunningService<RoleClient, ()>, tool: &'static str, args: Value) -> Value {
+    let result = client
+        .call_tool(
+            CallToolRequestParams::new(tool).with_arguments(args.as_object().unwrap().clone()),
+        )
+        .await
+        .unwrap();
+    let content = result.structured_content.unwrap_or_default();
+    assert_eq!(result.is_error, Some(false), "{tool}: {content}");
+    content
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn tools() {
+    let (_fake, url) = fake().await;
+    let setup = Setup::new(&url, true, "[access]\nsecrets = true\n");
+    let client = client(&setup).await;
+    assert_eq!(call(&client, "whoami", json!({})).await["role"], "user");
+    let page = call(&client, "list_resources", json!({})).await;
+    assert_eq!(page["total"], 1);
+    assert_eq!(page["items"][0]["id"], RESOURCE_ID);
+    let resource = call(&client, "get_resource", json!({ "id": RESOURCE_ID })).await;
+    assert_eq!(resource["id"], RESOURCE_ID);
+    let secret = call(&client, "get_secret", json!({ "id": RESOURCE_ID })).await;
+    assert_eq!(secret["value"], "s3cret-fake");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn read_only_by_default() {
+    let (_fake, url) = fake().await;
+    let setup = Setup::new(&url, true, "");
+    let client = client(&setup).await;
+    let tools = client.list_all_tools().await.unwrap();
+    assert!(tools.iter().any(|tool| tool.name == "list_resources"));
+    assert!(!tools.iter().any(|tool| tool.name == "get_secret"));
+    assert!(!tools.iter().any(|tool| tool.name == "delete_resource"));
+    client.cancel().await.unwrap();
 }
