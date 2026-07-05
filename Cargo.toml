@@ -27,8 +27,13 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 zeroize = "1"
 
 [dev-dependencies]
+futures-executor = "0.3"
+# The versions passbolt-sdk uses, for its test helpers (tests/common).
+pgp = { version = "0.21", default-features = false }
 rmcp = { version = "3.9", features = ["client", "transport-child-process"] }
 tempfile = "3"
+url = "2"
+uuid = { version = "1", features = ["v4"] }
 
 [lints.rust]
 unsafe_code = "deny"

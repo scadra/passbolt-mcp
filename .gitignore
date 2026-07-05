@@ -6,7 +6,10 @@
 # Secrets (never commit) #
 ######################
 .env
+.env.e2e
 *.asc
+# The test keys are public by design.
+!tests/fixtures/keys/*.asc
 *.gpg
 *.pem
 *.key

@@ -1928,6 +1928,8 @@ dependencies = [
  "chrono",
  "clap",
  "directories",
+ "futures-executor",
+ "pgp",
  "rand 0.8.8",
  "rmcp",
  "schemars",
@@ -1940,6 +1942,8 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+ "url",
+ "uuid",
  "zeroize",
 ]
 
