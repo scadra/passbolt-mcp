@@ -91,6 +91,26 @@ Asked "deploy with the staging database password", the agent finds `Staging DB` 
 and reads its password. Asked to read the production password, kept elsewhere, it finds nothing;
 asked to change `Staging DB`, it has no tool to do so.
 
+## Install
+
+From a [release](https://github.com/scadra/passbolt-mcp/releases): a binary for Linux, macOS and
+Windows, or the Docker image `ghcr.io/scadra/passbolt-mcp`. From the sources, with Rust 1.88 or
+later:
+
+```bash
+cargo install --locked --git https://github.com/scadra/passbolt-mcp
+```
+
+Then, with the [MCP user](docs/guides/mcp-user.md) created and its [rules](docs/rules.md) written:
+
+```bash
+passbolt-mcp verify   # pin the server key, once
+passbolt-mcp check    # who the agent will be, and what it can do
+claude mcp add passbolt -- passbolt-mcp --config ~/.config/passbolt-mcp/passbolt-mcp.toml
+```
+
+Claude Desktop and HTTP: see [connect an agent](docs/guides/serve.md).
+
 ## Documentation
 
 The documentation is in [`docs/`](docs/README.md):
