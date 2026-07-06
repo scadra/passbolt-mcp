@@ -66,9 +66,13 @@ pub struct Pwned {
 pub struct GeneratePassword {
     /// 20 by default, from 8 to 128.
     pub length: usize,
+    /// Lowercase letters; on by default.
     pub lowercase: bool,
+    /// Uppercase letters; on by default.
     pub uppercase: bool,
+    /// Digits; on by default.
     pub digits: bool,
+    /// Symbols; on by default.
     pub symbols: bool,
 }
 

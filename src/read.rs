@@ -338,6 +338,7 @@ pub struct FolderContents {
 /// An id, for the tools that take one.
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ById {
+    /// The id of the resource.
     pub id: String,
 }
 

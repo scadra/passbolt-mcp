@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, PartialEq, Eq, Serialize, JsonSchema)]
 pub struct WriteResult {
     /// Nothing was written.
+    /// Say what it would do, and do nothing.
     pub dry_run: bool,
     /// What was done, or would be.
     pub action: String,
@@ -48,10 +49,14 @@ impl WriteResult {
 /// `create_resource`.
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 pub struct CreateResource {
+    /// The name, as Passbolt shows it.
     pub name: String,
+    /// The username, or login.
     pub username: Option<String>,
+    /// The URIs; the first is the main one.
     #[serde(default)]
     pub uris: Vec<String>,
+    /// The description, in the metadata: not secret.
     pub description: Option<String>,
     /// From `generate_password`, for instance.
     pub password: Option<String>,
@@ -63,6 +68,7 @@ pub struct CreateResource {
     pub resource_type: Option<String>,
     /// Expiry of the password, RFC 3339.
     pub expiry: Option<String>,
+    /// Say what it would do, and do nothing.
     #[serde(default)]
     pub dry_run: bool,
 }
@@ -70,19 +76,26 @@ pub struct CreateResource {
 /// `update_resource`: the fields given change, the others stay.
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 pub struct UpdateResource {
+    /// The id of the resource.
     pub id: String,
+    /// The new name.
     pub name: Option<String>,
+    /// The new username.
     pub username: Option<String>,
+    /// The new URIs, all of them.
     pub uris: Option<Vec<String>>,
+    /// The new description.
     pub description: Option<String>,
     /// The new password: encrypted again for everyone with access.
     pub password: Option<String>,
+    /// The new secret note of a v5 resource.
     pub note: Option<String>,
     /// Expiry of the password, RFC 3339.
     pub expiry: Option<String>,
     /// Remove the expiry.
     #[serde(default)]
     pub clear_expiry: bool,
+    /// Say what it would do, and do nothing.
     #[serde(default)]
     pub dry_run: bool,
 }
@@ -109,7 +122,9 @@ impl UpdateResource {
 /// `delete_resource`.
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct DeleteResource {
+    /// The id of the resource.
     pub id: String,
+    /// Say what it would do, and do nothing.
     #[serde(default)]
     pub dry_run: bool,
 }
@@ -117,9 +132,11 @@ pub struct DeleteResource {
 /// `move_resource`.
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct MoveResource {
+    /// The id of the resource.
     pub id: String,
     /// The folder to move it to, by path or id; the root when absent.
     pub folder: Option<String>,
+    /// Say what it would do, and do nothing.
     #[serde(default)]
     pub dry_run: bool,
 }
@@ -127,9 +144,11 @@ pub struct MoveResource {
 /// `create_folder`.
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct CreateFolder {
+    /// The name of the folder.
     pub name: String,
     /// The folder to create it in, by path or id; the root when absent.
     pub parent: Option<String>,
+    /// Say what it would do, and do nothing.
     #[serde(default)]
     pub dry_run: bool,
 }
@@ -139,7 +158,9 @@ pub struct CreateFolder {
 pub struct RenameFolder {
     /// The folder, by path or id.
     pub folder: String,
+    /// The new name.
     pub name: String,
+    /// Say what it would do, and do nothing.
     #[serde(default)]
     pub dry_run: bool,
 }
@@ -151,6 +172,7 @@ pub struct MoveFolder {
     pub folder: String,
     /// The folder to move it into, by path or id; the root when absent.
     pub parent: Option<String>,
+    /// Say what it would do, and do nothing.
     #[serde(default)]
     pub dry_run: bool,
 }
@@ -164,6 +186,7 @@ pub struct DeleteFolder {
     /// they move up to the parent.
     #[serde(default)]
     pub with_content: bool,
+    /// Say what it would do, and do nothing.
     #[serde(default)]
     pub dry_run: bool,
 }
@@ -175,6 +198,7 @@ pub struct SetFavorite {
     pub id: String,
     /// `true` to mark it, `false` to unmark it.
     pub favorite: bool,
+    /// Say what it would do, and do nothing.
     #[serde(default)]
     pub dry_run: bool,
 }
@@ -184,9 +208,11 @@ pub struct SetFavorite {
 pub struct AddComment {
     /// The id of the resource.
     pub id: String,
+    /// The text of the comment.
     pub content: String,
     /// The comment it answers.
     pub parent_id: Option<String>,
+    /// Say what it would do, and do nothing.
     #[serde(default)]
     pub dry_run: bool,
 }
@@ -198,6 +224,7 @@ pub struct DeleteComment {
     pub id: String,
     /// The id of the comment, from `list_comments`.
     pub comment_id: String,
+    /// Say what it would do, and do nothing.
     #[serde(default)]
     pub dry_run: bool,
 }
