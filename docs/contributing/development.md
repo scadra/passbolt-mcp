@@ -20,6 +20,9 @@ cargo deny check                         # advisories, licenses, sources
 
 The CI runs the same, plus `cargo check --locked` with Rust 1.88.
 
+[`tools-reference.md`](../tools-reference.md) is written from the schemas of the tools; a test
+fails when it is out of date: `UPDATE_DOCS=1 cargo test tools_reference` writes it again.
+
 ## Tests
 
 | Where | What | Needs |
