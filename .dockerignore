@@ -1,0 +1,6 @@
+target
+.git
+.env*
+*.asc
+passbolt-mcp.toml
+audit.jsonl
