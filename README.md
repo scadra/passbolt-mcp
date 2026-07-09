@@ -122,6 +122,7 @@ The documentation is in [`docs/`](docs/README.md):
 - [Tools](docs/tools.md): what the agent can call, and the [reference](docs/tools-reference.md)
 - [Security](docs/security.md)
 - [Development](docs/contributing/development.md)
+- [Changelog](CHANGELOG.md)
 
 ## Reporting a security issue
 
