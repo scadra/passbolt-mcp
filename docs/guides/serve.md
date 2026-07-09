@@ -50,6 +50,20 @@ Every client shares the session of the MCP user. `passbolt-mcp` listens on a loo
 and refuses requests from a web page (those with an `Origin` header), so a page you visit cannot
 reach it.
 
+## With Docker
+
+The image `ghcr.io/scadra/passbolt-mcp` serves over stdio. Put the configuration, the key and the
+passphrase in one directory, with relative paths in the configuration, and mount it on `/config`:
+writable, for the pinned server key and the audit file.
+
+```bash
+docker run --rm -v ~/.config/passbolt-mcp:/config ghcr.io/scadra/passbolt-mcp verify
+claude mcp add passbolt -- docker run -i --rm -v ~/.config/passbolt-mcp:/config ghcr.io/scadra/passbolt-mcp
+```
+
+`--http` is not for the image: `passbolt-mcp` listens on a loopback address only, which a container
+does not publish.
+
 ## Logs
 
 On stderr, `warn` and up by default; `PASSBOLT_MCP_LOG=info` (or `debug`) for more. Secrets never

@@ -35,6 +35,7 @@ pub struct ShareResource {
     pub groups: Vec<String>,
     /// `read`, `update`, `owner`, or `none` to revoke their access.
     pub permission: String,
+    /// Say what it would do, and do nothing.
     #[serde(default)]
     pub dry_run: bool,
 }
@@ -44,8 +45,10 @@ pub struct ShareResource {
 pub struct ShareFolder {
     /// The folder, by path or id.
     pub folder: String,
+    /// Ids of users, from `search_aros`.
     #[serde(default)]
     pub users: Vec<String>,
+    /// Ids of groups, from `search_aros`.
     #[serde(default)]
     pub groups: Vec<String>,
     /// `read`, `update`, `owner`, or `none` to revoke their access.
@@ -53,6 +56,7 @@ pub struct ShareFolder {
     /// Also on the subfolders and resources the MCP user owns, as the browser extension does.
     #[serde(default = "yes")]
     pub with_content: bool,
+    /// Say what it would do, and do nothing.
     #[serde(default)]
     pub dry_run: bool,
 }

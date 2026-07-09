@@ -1307,3 +1307,6 @@ mod prompt_tests {
         assert_eq!(offered, ["audit_password_hygiene", "rotate_password"]);
     }
 }
+
+#[cfg(test)]
+mod reference;

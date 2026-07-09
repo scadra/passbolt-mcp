@@ -8,7 +8,8 @@ sidebar_position: 4
 What the agent can call: tools, and the [resources](#resources) and [prompts](#prompts) below. A tool is offered only when the [rules](rules.md) allow it, and acts only
 on what is shared with the [MCP user](guides/mcp-user.md) inside `scope.folders`.
 
-This page is filled as the tools are written.
+Every argument of every tool, from the schemas the agent gets: the
+[tools reference](tools-reference.md).
 
 ## Reading
 
