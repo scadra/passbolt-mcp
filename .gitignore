@@ -25,3 +25,9 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# Documentation site #
+######################
+/website/node_modules
+/website/build
+/website/.docusaurus
