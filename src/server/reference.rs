@@ -78,7 +78,7 @@ fn render() -> String {
     let mut tools = PassboltMcp::tool_router().list_all();
     tools.sort_by(|a, b| a.name.cmp(&b.name));
     let mut out = String::from(
-        "---\ntitle: Tools reference\nsidebar_position: 5\n---\n\n\
+        "---\ntitle: Tools reference\nsidebar_position: 6\n---\n\n\
          <!-- Written by `UPDATE_DOCS=1 cargo test tools_reference`: do not edit. -->\n\n\
          # Tools reference\n\n\
          Every tool and its arguments, from the schemas the agent gets. \

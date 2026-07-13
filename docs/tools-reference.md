@@ -1,6 +1,6 @@
 ---
 title: Tools reference
-sidebar_position: 5
+sidebar_position: 6
 ---
 
 <!-- Written by `UPDATE_DOCS=1 cargo test tools_reference`: do not edit. -->

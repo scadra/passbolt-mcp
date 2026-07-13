@@ -32,9 +32,13 @@ The agent gets what both allow, never more.
 
 ## Where to start
 
+- **Try it**: [install](getting-started/installation.md), then the [quick start](getting-started/quick-start.md).
 - **Set up an agent**: [create the MCP user](guides/mcp-user.md) in Passbolt, share a folder with
-  it, then [write the rules](rules.md) and [connect the agent](guides/serve.md).
-- **Know what the agent can call**: the [tools](tools.md).
+  it, then [write the rules](rules.md), starting from a [recipe](guides/recipes.md), and
+  [connect the client](guides/serve.md).
+- **Know what the agent can call**: the [tools](tools.md), their [reference](tools-reference.md),
+  and [example prompts](examples.md).
+- **When something fails**: [troubleshooting](troubleshooting.md).
 - **Before giving it secrets**: read [security](security.md).
 - **Work on passbolt-mcp itself**: [development](contributing/development.md).
 
