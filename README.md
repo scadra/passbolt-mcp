@@ -109,18 +109,21 @@ passbolt-mcp check    # who the agent will be, and what it can do
 claude mcp add passbolt -- passbolt-mcp --config ~/.config/passbolt-mcp/passbolt-mcp.toml
 ```
 
-Claude Desktop and HTTP: see [connect an agent](docs/guides/serve.md).
+Claude Desktop, Cursor, VS Code, Codex, Docker, HTTP: see [connect a client](docs/guides/serve.md).
 
 ## Documentation
 
 The documentation is in [`docs/`](docs/README.md):
 
 - [Introduction](docs/README.md)
+- [Installation](docs/getting-started/installation.md) and [quick start](docs/getting-started/quick-start.md)
 - [The MCP user](docs/guides/mcp-user.md): create it, share with it, revoke it
-- [Connect an agent](docs/guides/serve.md): Claude Code, Claude Desktop, stdio or HTTP
-- [Rules](docs/rules.md): what the agent may do
+- [Connect a client](docs/guides/serve.md): Claude Code, Claude Desktop, Cursor, VS Code, Codex, Docker, HTTP
+- [Rules](docs/rules.md): what the agent may do, and [recipes](docs/guides/recipes.md)
 - [Tools](docs/tools.md): what the agent can call, and the [reference](docs/tools-reference.md)
+- [Example prompts](docs/examples.md)
 - [Security](docs/security.md)
+- [Troubleshooting](docs/troubleshooting.md)
 - [Development](docs/contributing/development.md)
 - [Changelog](CHANGELOG.md)
 
