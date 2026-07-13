@@ -1,6 +1,6 @@
 ---
 title: Security
-sidebar_position: 5
+sidebar_position: 8
 ---
 
 # Security
@@ -29,6 +29,26 @@ An agent with access to a password manager is a target. This page lists what can
   are in memory.
 - What the MCP client does with the answers: a secret given to the agent is in its context, and
   may reach the model provider. Keep `access.secrets` off unless the agent truly needs it.
+
+## Checklist
+
+Before giving an agent secrets:
+
+- [ ] The MCP user is a user of its own, role **user**, used by nothing else.
+- [ ] It is shared only what the agent needs, as **Read** unless it must change things.
+- [ ] Its key and passphrase are readable by the account running `passbolt-mcp` only; the
+      passphrase comes from a secret store (`passphrase_command`) rather than a plain file where
+      possible.
+- [ ] The server key is pinned (`passbolt-mcp verify`), and `tls_skip_verify` is off.
+- [ ] `scope.folders` names the folders the agent works in.
+- [ ] Only the `[access]` keys the task needs are on; `allow_tools` narrows them further.
+- [ ] `limits.secrets_per_minute` is as low as the task allows.
+- [ ] `[audit]` writes to a file someone reads.
+- [ ] The client asks before the destructive tools, and the agent tries writes with `dry_run`.
+- [ ] `passbolt-mcp check` shows no warning.
+- [ ] You know how to cut the agent off: suspend the MCP user in Passbolt.
+
+The [rule recipes](guides/recipes.md) start from there.
 
 ## Reporting a security issue
 
