@@ -14,6 +14,7 @@
 
 pub mod audit;
 pub mod config;
+pub mod confirm;
 pub mod error;
 pub mod limits;
 pub mod page;

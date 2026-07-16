@@ -53,7 +53,8 @@ pub struct Entry {
     pub time: String,
     pub tool: String,
     pub arguments: Map<String, Value>,
-    /// `ok`, `refused` (the rules), `error` (Passbolt or the arguments) or `protocol`.
+    /// `ok`, `refused` (the rules), `asked` (the person, through the client), `declined` (by
+    /// the person, or not asked), `error` (Passbolt or the arguments) or `protocol`.
     pub outcome: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
@@ -146,13 +147,14 @@ pub fn entry(
                 .and_then(|content| content.get("code"))
                 .and_then(Value::as_str)
                 .map(String::from);
-            let outcome = if code.as_deref() == Some("refused") {
-                "refused"
-            } else {
-                "error"
+            let outcome = match code.as_deref() {
+                Some("refused") => "refused",
+                Some("declined" | "unconfirmed") => "declined",
+                _ => "error",
             };
             (outcome, code)
         }
+        Ok(CallToolResponse::InputRequired(_)) => ("asked", None),
         Ok(_) => ("ok", None),
         Err(error) => ("protocol", Some(error.message.to_string())),
     };
