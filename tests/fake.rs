@@ -17,10 +17,14 @@ mod common;
 use std::path::PathBuf;
 
 use common::{data, http, FakePassbolt, ADA, BETTY, RESOURCE_ID, SERVER};
-use rmcp::model::CallToolRequestParams;
-use rmcp::service::RunningService;
+use rmcp::model::{
+    CallToolRequestParams, CallToolResult, ClientCapabilities, ClientConfig, ElicitRequestParams,
+    ElicitResult, ElicitationAction, ElicitationCapability, FormElicitationCapability,
+    Implementation, ProtocolVersion,
+};
+use rmcp::service::{ClientLifecycleMode, ClientServiceExt, RequestContext, RunningService};
 use rmcp::transport::{ConfigureCommandExt, TokioChildProcess};
-use rmcp::{RoleClient, ServiceExt};
+use rmcp::{ClientHandler, ErrorData, RoleClient};
 use serde_json::{json, Value};
 
 /// A configuration directory for ada on the fake at `base_url`, with `extra` appended.
@@ -160,23 +164,48 @@ async fn refuses_an_impostor() {
 }
 
 async fn client(setup: &Setup) -> RunningService<RoleClient, ()> {
+    client_with(setup, ()).await
+}
+
+async fn client_with<H: ClientHandler>(setup: &Setup, handler: H) -> RunningService<RoleClient, H> {
+    client_on(setup, handler, ClientLifecycleMode::Initialize).await
+}
+
+async fn client_on<H: ClientHandler>(
+    setup: &Setup,
+    handler: H,
+    lifecycle: ClientLifecycleMode,
+) -> RunningService<RoleClient, H> {
     let config = setup.config();
     let command =
         tokio::process::Command::new(env!("CARGO_BIN_EXE_passbolt-mcp")).configure(|command| {
             command.arg("--config").arg(&config).arg("serve");
         });
-    ().serve(TokioChildProcess::new(command).unwrap())
+    handler
+        .serve_with_lifecycle(TokioChildProcess::new(command).unwrap(), lifecycle)
         .await
         .unwrap()
 }
 
-async fn call(client: &RunningService<RoleClient, ()>, tool: &'static str, args: Value) -> Value {
-    let result = client
+async fn call_tool<H: ClientHandler>(
+    client: &RunningService<RoleClient, H>,
+    tool: &'static str,
+    args: Value,
+) -> CallToolResult {
+    client
         .call_tool(
             CallToolRequestParams::new(tool).with_arguments(args.as_object().unwrap().clone()),
         )
         .await
-        .unwrap();
+        .unwrap()
+}
+
+async fn call<H: ClientHandler>(
+    client: &RunningService<RoleClient, H>,
+    tool: &'static str,
+    args: Value,
+) -> Value {
+    let result = call_tool(client, tool, args).await;
     let content = result.structured_content.unwrap_or_default();
     assert_eq!(result.is_error, Some(false), "{tool}: {content}");
     content
@@ -208,4 +237,131 @@ async fn read_only_by_default() {
     assert!(!tools.iter().any(|tool| tool.name == "get_secret"));
     assert!(!tools.iter().any(|tool| tool.name == "delete_resource"));
     client.cancel().await.unwrap();
+}
+
+/// A client whose person answers the confirmations of `[confirm]`; `None`: it cannot ask.
+struct Person {
+    says: Option<ElicitationAction>,
+    protocol: ProtocolVersion,
+}
+
+impl ClientHandler for Person {
+    fn create_elicitation(
+        &self,
+        request: ElicitRequestParams,
+        _context: RequestContext<RoleClient>,
+    ) -> impl std::future::Future<Output = Result<ElicitResult, ErrorData>> + Send + '_ {
+        let ElicitRequestParams::FormElicitationParams { message, .. } = request else {
+            panic!("a form");
+        };
+        assert!(message.contains("get_secret"), "{message}");
+        std::future::ready(Ok(ElicitResult::new(self.says.clone().unwrap())))
+    }
+
+    fn get_info(&self) -> ClientConfig {
+        let mut capabilities = ClientCapabilities::default();
+        if self.says.is_some() {
+            capabilities.elicitation =
+                Some(ElicitationCapability::new().with_form(FormElicitationCapability::default()));
+        }
+        ClientConfig::new(capabilities, Implementation::from_build_env())
+            .with_protocol_version(self.protocol.clone())
+    }
+}
+
+const CONFIRM_SECRETS: &str = "[access]\nsecrets = true\n[confirm]\ntools = [\"get_secret\"]\n";
+
+/// `get_secret`, by a client of `protocol` whose person `says`: the secret or the error code, and
+/// the outcomes of the audit file.
+async fn confirmed(
+    says: Option<ElicitationAction>,
+    protocol: ProtocolVersion,
+    extra: &str,
+) -> (Result<String, String>, Vec<String>) {
+    let (_fake, url) = fake().await;
+    let audit = "[audit]\nfile = \"audit.jsonl\"\n";
+    let setup = Setup::new(&url, true, &format!("{audit}{CONFIRM_SECRETS}{extra}"));
+    // From 2026-07-28, no `initialize`: the client discovers the server.
+    let lifecycle = if protocol.has_initialize() {
+        ClientLifecycleMode::Initialize
+    } else {
+        ClientLifecycleMode::Discover {
+            preferred_versions: vec![protocol.clone()],
+        }
+    };
+    let client = client_on(&setup, Person { says, protocol }, lifecycle).await;
+    let result = call_tool(&client, "get_secret", json!({ "id": RESOURCE_ID })).await;
+    client.cancel().await.unwrap();
+    let content = result.structured_content.unwrap_or_default();
+    let outcome = if result.is_error == Some(true) {
+        Err(content["code"].as_str().unwrap_or_default().to_string())
+    } else {
+        Ok(content["value"].as_str().unwrap_or_default().to_string())
+    };
+    let lines = std::fs::read_to_string(setup.dir.path().join("audit.jsonl")).unwrap();
+    let outcomes = lines
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap()["outcome"].to_string())
+        .map(|outcome| outcome.trim_matches('"').to_string())
+        .collect();
+    (outcome, outcomes)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn confirm_with_input_required() {
+    let accepted = confirmed(
+        Some(ElicitationAction::Accept),
+        ProtocolVersion::V_2026_07_28,
+        "",
+    );
+    assert_eq!(
+        accepted.await,
+        (Ok("s3cret-fake".into()), vec!["asked".into(), "ok".into()])
+    );
+    let declined = confirmed(
+        Some(ElicitationAction::Decline),
+        ProtocolVersion::V_2026_07_28,
+        "",
+    );
+    assert_eq!(
+        declined.await,
+        (
+            Err("declined".into()),
+            vec!["asked".into(), "declined".into()]
+        )
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn confirm_with_elicitation_requests() {
+    let accepted = confirmed(
+        Some(ElicitationAction::Accept),
+        ProtocolVersion::V_2025_11_25,
+        "",
+    );
+    assert_eq!(
+        accepted.await,
+        (Ok("s3cret-fake".into()), vec!["ok".into()])
+    );
+    let cancelled = confirmed(
+        Some(ElicitationAction::Cancel),
+        ProtocolVersion::V_2025_11_25,
+        "",
+    );
+    assert_eq!(
+        cancelled.await,
+        (Err("declined".into()), vec!["declined".into()])
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn confirm_without_elicitation() {
+    let refused = confirmed(None, ProtocolVersion::V_2025_11_25, "");
+    assert_eq!(refused.await.0, Err("unconfirmed".into()));
+    let allowed = confirmed(
+        None,
+        ProtocolVersion::V_2025_11_25,
+        "unsupported = \"allow\"\n",
+    );
+    assert_eq!(allowed.await.0, Ok("s3cret-fake".into()));
 }
