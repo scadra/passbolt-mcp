@@ -69,7 +69,8 @@ change, never their values.
 | `add_comment` | `id`, `content`, `parent_id` | a comment, by the MCP user |
 | `delete_comment` | `id`, `comment_id` | a comment of the MCP user (destructive) |
 
-The destructive tools say so to the client, which can ask the person before calling them.
+The destructive tools say so to the client, which can ask the person before calling them. To be
+sure the person is asked, whatever the client: [`[confirm]`](rules.md#confirm-what-the-person-says-yes-to).
 
 ## Sharing
 

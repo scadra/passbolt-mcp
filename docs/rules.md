@@ -37,6 +37,9 @@ file = "/var/log/passbolt-mcp/audit.jsonl"
 
 [limits]
 secrets_per_minute = 20
+
+[confirm]
+tools = ["delete_resource", "delete_folder"]
 ```
 
 Without a file, every rule takes its default: read only, no secrets, no sharing, every folder the
@@ -99,8 +102,9 @@ does not see stops `passbolt-mcp` at start, rather than leaving the agent with l
 {"time":"2026-06-29T15:20:05.112Z","tool":"get_secret","arguments":{"id":"8f0b…"},"outcome":"refused","code":"refused"}
 ```
 
-`outcome` is `ok`, `refused` (by the rules), `error` (Passbolt or the arguments) or `protocol`
-(an unknown tool). Only the arguments that name things are written: ids, folders, users, groups,
+`outcome` is `ok`, `refused` (by the rules), `asked` and `declined` (the person, see
+[`[confirm]`](#confirm-what-the-person-says-yes-to)), `error` (Passbolt or the arguments) or
+`protocol` (an unknown tool). Only the arguments that name things are written: ids, folders, users, groups,
 permissions, fields, `dry_run`. Never passwords, notes, descriptions, comments nor names.
 
 Passbolt keeps its own record of what the MCP user did; this file adds what the agent asked and was
@@ -115,6 +119,34 @@ refused.
 
 Over a limit, a call is refused (`refused by the MCP rules: over limits.secrets_per_minute…`)
 until the calls of the last minute make room: a runaway agent cannot read every secret at once.
+
+## `[confirm]`: what the person says yes to
+
+| Key | Default | What |
+|---|---|---|
+| `tools` | `[]` | tools the person confirms before they run |
+| `unsupported` | `"refuse"` | with a client that cannot ask: `"refuse"` the call, or `"allow"` it |
+
+```toml
+[confirm]
+tools = ["get_secret", "delete_resource", "delete_folder", "share_resource", "share_folder"]
+```
+
+Before such a tool runs, the client asks the person, with the tool and its arguments (never a
+password or a note): "The agent asks to run delete_resource in Passbolt, with id = "8f0b…". Allow
+it?". The agent cannot answer for them: the question goes to the client, through MCP elicitation,
+not to the model. A call with `dry_run` is not asked: it changes nothing.
+
+- On a "no", or no answer within five minutes, the call is refused (`declined`), and the agent is
+  told not to try again unless the person asks.
+- A client that does not support elicitation cannot ask: the call is refused (`unconfirmed`), or
+  runs with `unsupported = "allow"`.
+- Clients on protocol 2026-07-28 or later get the question as an `input_required` answer, and
+  call again with the answer of the person; earlier ones get an `elicitation/create` request
+  during the call. The answer counts for that very call only.
+
+`passbolt-mcp check` lists them, and warns about names that are no tool. The audit file writes
+`asked` when the question goes out, and `declined` on a "no".
 
 ## Effective rights
 

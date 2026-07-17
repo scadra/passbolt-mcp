@@ -38,6 +38,9 @@ file = "/var/log/passbolt-mcp/audit.jsonl"
 secrets_per_minute = 5
 ```
 
+With a person at the keyboard, add `[confirm]` with `tools = ["get_secret"]`: they approve each
+password the agent reads. A job that runs alone cannot be asked; keep it without.
+
 Share `Agents/CI` as **Read**. Five secrets a minute is more than a deploy needs and less than an
 agent emptying the folder would like; the audit file says which ones it read.
 
@@ -84,7 +87,12 @@ deny_tools = ["delete_resource", "delete_folder", "delete_comment", "move_resour
 
 [scope]
 folders = ["Agents/Rotation"]
+
+[confirm]
+tools = ["update_resource"]
 ```
+
+The person approves the new password before it is saved: the dry run first, then the real call.
 
 Share `Agents/Rotation` as **Update**: changing a resource needs it, and nothing more is shared.
 

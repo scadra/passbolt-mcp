@@ -41,6 +41,8 @@ detail with `PASSBOLT_MCP_LOG=debug`, on stderr.
 | `refused by the MCP rules: access.… is false` | The tool needs that key. |
 | `refused by the MCP rules: outside scope.folders` | The resource or folder is outside `scope.folders`. |
 | `refused by the MCP rules: over limits.…` | Wait a minute, or raise the limit. |
+| `declined` | The person said no to a tool of `[confirm]`, or did not answer within five minutes. |
+| `unconfirmed` | The tool is in `[confirm]`, and the client cannot ask the person (no MCP elicitation): use a client that can, or `unsupported = "allow"`. |
 | `forbidden` | Passbolt does not give the MCP user the permission needed: share it as **Update** to change it, **Owner** to share it. |
 | `not_found` | Not shared with the MCP user, or deleted. |
 | With Docker, nothing happens | `-i` is missing, or a `-t` is there. |
