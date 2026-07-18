@@ -15,7 +15,7 @@ clap = { version = "4", features = ["derive", "env"] }
 directories = "5"
 passbolt-sdk = { package = "switch-case-passbolt-sdk", version = "0.1.2", features = ["native", "totp"] }
 rand = "0.8"
-rmcp = { version = "3.9", features = ["macros", "server", "transport-io", "transport-streamable-http-server"] }
+rmcp = { version = "3.9", features = ["elicitation", "macros", "server", "transport-io", "transport-streamable-http-server"] }
 schemars = "1"
 secrecy = "0.10"
 serde = { version = "1", features = ["derive"] }
@@ -30,7 +30,7 @@ zeroize = "1"
 futures-executor = "0.3"
 # The versions passbolt-sdk uses, for its test helpers (tests/common).
 pgp = { version = "0.21", default-features = false }
-rmcp = { version = "3.9", features = ["client", "transport-child-process"] }
+rmcp = { version = "3.9", features = ["client", "elicitation", "transport-child-process"] }
 tempfile = "3"
 url = "2"
 uuid = { version = "1", features = ["v4"] }

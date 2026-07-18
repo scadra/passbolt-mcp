@@ -51,6 +51,7 @@ use serde_json::{Map, Value};
 use zeroize::Zeroizing;
 
 use crate::audit::Audit;
+use crate::confirm::{Confirm, Gate};
 use crate::error::ToolError;
 use crate::limits::Limits;
 use crate::page::Page;
@@ -84,6 +85,7 @@ pub struct PassboltMcp {
     rules: Arc<Rules>,
     audit: Arc<Audit>,
     limits: Arc<Limits>,
+    confirm: Arc<Confirm>,
     tool_router: ToolRouter<Self>,
     prompt_router: PromptRouter<Self>,
 }
@@ -100,6 +102,8 @@ pub struct WhoAmI {
     pub share: bool,
     /// The folders of `scope.folders`, with their subfolders; absent: everything the user sees.
     pub scope_folders: Option<usize>,
+    /// The tools the person confirms before they run (`[confirm]`).
+    pub confirm: Vec<String>,
 }
 
 const fn moved_permissions(with_permissions: bool) -> &'static str {
@@ -153,6 +157,7 @@ impl PassboltMcp {
         rules: Arc<Rules>,
         audit: Arc<Audit>,
         limits: Arc<Limits>,
+        confirm: Arc<Confirm>,
     ) -> Self {
         let tool_router = Self::router(&rules);
         let prompt_router = Self::prompts(&rules);
@@ -161,9 +166,20 @@ impl PassboltMcp {
             rules,
             audit,
             limits,
+            confirm,
             tool_router,
             prompt_router,
         }
+    }
+
+    /// The name of every tool, offered or not.
+    #[must_use]
+    pub fn tool_names() -> Vec<String> {
+        Self::tool_router()
+            .list_all()
+            .into_iter()
+            .map(|tool| tool.name.to_string())
+            .collect()
     }
 
     /// The tools the rules offer: the others are not listed, and cannot be called.
@@ -1087,6 +1103,7 @@ impl PassboltMcp {
                 .scope()
                 .folders()
                 .map(std::collections::HashSet::len),
+            confirm: self.confirm.tools().to_vec(),
         }))
     }
 }
@@ -1223,11 +1240,15 @@ impl ServerHandler for PassboltMcp {
         let tool = request.name.to_string();
         let arguments = request.arguments.clone();
         let response = match self.limits.take(needs(&tool)) {
-            Ok(()) => {
-                self.tool_router
-                    .call(ToolCallContext::new(self, request, context))
-                    .await
-            }
+            Ok(()) => match self.confirm.gate(&request, &context).await {
+                Gate::Go => {
+                    self.tool_router
+                        .call(ToolCallContext::new(self, request, context))
+                        .await
+                }
+                Gate::Ask(question) => Ok(question.into()),
+                Gate::Refuse(error) => error.into_call_tool_result(),
+            },
             Err(refusal) => ToolError::from(refusal).into_call_tool_result(),
         };
         self.audit.record(&tool, arguments.as_ref(), &response);

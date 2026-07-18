@@ -16,7 +16,8 @@ use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
 use passbolt_mcp::audit::Audit;
-use passbolt_mcp::config::Config;
+use passbolt_mcp::config::{Config, Unsupported};
+use passbolt_mcp::confirm::Confirm;
 use passbolt_mcp::limits::Limits;
 use passbolt_mcp::rules::Rules;
 use passbolt_mcp::server::PassboltMcp;
@@ -126,8 +127,23 @@ async fn check(config: &Config) -> anyhow::Result<()> {
         "The agent can read {} resources, read the secret of {}, change {}, share {}",
         rights.read, rights.secrets, rights.change, rights.share
     );
+    let confirm = Confirm::new(config.confirm.clone());
+    if !confirm.tools().is_empty() {
+        println!(
+            "Asks the person before {}; {} a client that cannot ask",
+            confirm.tools().join(", "),
+            match config.confirm.unsupported {
+                Unsupported::Refuse => "refuses with",
+                Unsupported::Allow => "runs them with",
+            }
+        );
+    }
     let folder_ids = folders.iter().map(|folder| folder.id.as_str());
-    for warning in rules.warnings(shared.iter().copied(), folder_ids) {
+    let warnings = rules.warnings(shared.iter().copied(), folder_ids);
+    for warning in warnings
+        .into_iter()
+        .chain(confirm.warnings(&PassboltMcp::tool_names()))
+    {
         println!("Warning: {warning}");
     }
     session.close().await;
@@ -193,6 +209,7 @@ async fn serve(config: &Config, http: Option<SocketAddr>) -> anyhow::Result<()> 
         Arc::new(rules),
         Arc::new(audit),
         Arc::new(Limits::new(&config.limits)),
+        Arc::new(Confirm::new(config.confirm.clone())),
     );
     let running = async {
         match http {

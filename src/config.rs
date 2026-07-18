@@ -25,6 +25,7 @@ pub struct Config {
     pub scope: ScopeConfig,
     pub audit: AuditConfig,
     pub limits: LimitsConfig,
+    pub confirm: ConfirmConfig,
     /// The directory of the file, or the default one: where the server key is pinned.
     #[serde(skip)]
     pub dir: PathBuf,
@@ -102,6 +103,24 @@ impl Default for LimitsConfig {
             secrets_per_minute: 20,
         }
     }
+}
+
+/// `[confirm]`: the tools the person confirms before they run.
+#[derive(Debug, Default, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ConfirmConfig {
+    /// Asked to the person through the client (MCP elicitation), unless called with `dry_run`.
+    pub tools: Vec<String>,
+    /// What to do with a client that cannot ask: refuse the call, the default, or let it run.
+    pub unsupported: Unsupported,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Unsupported {
+    #[default]
+    Refuse,
+    Allow,
 }
 
 impl Config {

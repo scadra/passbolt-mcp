@@ -21,8 +21,8 @@ use crate::rules::Refusal;
 
 #[derive(Debug, PartialEq, Eq, Serialize)]
 pub struct ToolError {
-    /// `refused`, `forbidden`, `not_found`, `invalid_argument`, `auth`, `crypto`, `transport`,
-    /// `api` or `internal`.
+    /// `refused`, `declined`, `unconfirmed`, `forbidden`, `not_found`, `invalid_argument`,
+    /// `auth`, `crypto`, `transport`, `api` or `internal`.
     pub code: &'static str,
     pub message: String,
     /// The HTTP status Passbolt answered, if any.
@@ -49,6 +49,18 @@ impl ToolError {
     #[must_use]
     pub const fn not_found(message: String) -> Self {
         Self::new("not_found", message)
+    }
+
+    /// The person said no to a tool of `[confirm]`.
+    #[must_use]
+    pub const fn declined(message: String) -> Self {
+        Self::new("declined", message)
+    }
+
+    /// A tool of `[confirm]` the person could not be asked about.
+    #[must_use]
+    pub const fn unconfirmed(message: String) -> Self {
+        Self::new("unconfirmed", message)
     }
 
     /// What the permission of the MCP user does not allow, known before asking Passbolt.

@@ -3,6 +3,11 @@ All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
+### Added
+- `[confirm]`: the person approves the tools listed before they run, through the client (MCP
+  elicitation: `input_required` from protocol 2026-07-28, `elicitation/create` before); a client
+  that cannot ask is refused, or allowed with `unsupported = "allow"`. `whoami` and `check` list
+  them; the audit file writes `asked` and `declined`
 
 ## [0.1.0] - 2026-07-09
 ### Added
