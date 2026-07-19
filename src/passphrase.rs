@@ -10,9 +10,6 @@
 // @link          https://www.passbolt.com Passbolt(tm)
 // @since         0.1.0
 
-//! The passphrase of the MCP user: from a file or a command, never from the command line nor
-//! the config file, which end up in shell histories, process lists and backups.
-
 use std::path::Path;
 use std::process::{Command, Stdio};
 
@@ -22,7 +19,6 @@ use zeroize::Zeroizing;
 
 use crate::config::PassboltConfig;
 
-/// `passphrase_file` or `passphrase_command`, exactly one.
 pub fn read(config: &PassboltConfig) -> Result<SecretString> {
     match (&config.passphrase_file, &config.passphrase_command) {
         (Some(path), None) => from_file(path),
@@ -32,7 +28,6 @@ pub fn read(config: &PassboltConfig) -> Result<SecretString> {
     }
 }
 
-/// The first line of the file.
 pub fn from_file(path: &Path) -> Result<SecretString> {
     let text = Zeroizing::new(
         std::fs::read_to_string(path)
@@ -41,9 +36,6 @@ pub fn from_file(path: &Path) -> Result<SecretString> {
     first_line(&text)
 }
 
-/// The first line the command prints, as `pass show` prints the password.
-///
-/// stdin is closed: in stdio, it carries the MCP messages. stderr is kept, for a prompt.
 pub fn from_command(command: &[String]) -> Result<SecretString> {
     let (program, args) = command
         .split_first()

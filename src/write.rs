@@ -10,21 +10,18 @@
 // @link          https://www.passbolt.com Passbolt(tm)
 // @since         0.1.0
 
-//! The arguments and results of the write tools, with `access.write` only. Every write takes
-//! `dry_run`: it then says what it would do, and does nothing.
-
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-/// What a write did, or would do with `dry_run`.
 #[derive(Debug, PartialEq, Eq, Serialize, JsonSchema)]
+#[schemars(description = "What a write did, or would do with `dry_run`.")]
 pub struct WriteResult {
-    /// Nothing was written.
-    /// Say what it would do, and do nothing.
+    #[schemars(description = "Nothing was written. \
+        Say what it would do, and do nothing.")]
     pub dry_run: bool,
-    /// What was done, or would be.
+    #[schemars(description = "What was done, or would be.")]
     pub action: String,
-    /// The id of what was created or changed.
+    #[schemars(description = "The id of what was created or changed.")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
 }
@@ -45,62 +42,63 @@ impl WriteResult {
     }
 }
 
-/// `create_resource`.
 #[derive(Debug, Default, Deserialize, JsonSchema)]
+#[schemars(description = "`create_resource`.")]
 pub struct CreateResource {
-    /// The name, as Passbolt shows it.
+    #[schemars(description = "The name, as Passbolt shows it.")]
     pub name: String,
-    /// The username, or login.
+    #[schemars(description = "The username, or login.")]
     pub username: Option<String>,
-    /// The URIs; the first is the main one.
+    #[schemars(description = "The URIs; the first is the main one.")]
     #[serde(default)]
     pub uris: Vec<String>,
-    /// The description, in the metadata: not secret.
+    #[schemars(description = "The description, in the metadata: not secret.")]
     pub description: Option<String>,
-    /// From `generate_password`, for instance.
+    #[schemars(description = "From `generate_password`, for instance.")]
     pub password: Option<String>,
-    /// The secret note of a v5 resource.
+    #[schemars(description = "The secret note of a v5 resource.")]
     pub note: Option<String>,
-    /// The folder to create it in, by path or id; the root when absent.
+    #[schemars(description = "The folder to create it in, by path or id; the root when absent.")]
     pub folder: Option<String>,
-    /// Its type, by slug (`list_resource_types`); by default, from the fields given.
+    #[schemars(
+        description = "Its type, by slug (`list_resource_types`); by default, from the fields given."
+    )]
     pub resource_type: Option<String>,
-    /// Expiry of the password, RFC 3339.
+    #[schemars(description = "Expiry of the password, RFC 3339.")]
     pub expiry: Option<String>,
-    /// Say what it would do, and do nothing.
+    #[schemars(description = "Say what it would do, and do nothing.")]
     #[serde(default)]
     pub dry_run: bool,
 }
 
-/// `update_resource`: the fields given change, the others stay.
 #[derive(Debug, Default, Deserialize, JsonSchema)]
+#[schemars(description = "`update_resource`: the fields given change, the others stay.")]
 pub struct UpdateResource {
-    /// The id of the resource.
+    #[schemars(description = "The id of the resource.")]
     pub id: String,
-    /// The new name.
+    #[schemars(description = "The new name.")]
     pub name: Option<String>,
-    /// The new username.
+    #[schemars(description = "The new username.")]
     pub username: Option<String>,
-    /// The new URIs, all of them.
+    #[schemars(description = "The new URIs, all of them.")]
     pub uris: Option<Vec<String>>,
-    /// The new description.
+    #[schemars(description = "The new description.")]
     pub description: Option<String>,
-    /// The new password: encrypted again for everyone with access.
+    #[schemars(description = "The new password: encrypted again for everyone with access.")]
     pub password: Option<String>,
-    /// The new secret note of a v5 resource.
+    #[schemars(description = "The new secret note of a v5 resource.")]
     pub note: Option<String>,
-    /// Expiry of the password, RFC 3339.
+    #[schemars(description = "Expiry of the password, RFC 3339.")]
     pub expiry: Option<String>,
-    /// Remove the expiry.
+    #[schemars(description = "Remove the expiry.")]
     #[serde(default)]
     pub clear_expiry: bool,
-    /// Say what it would do, and do nothing.
+    #[schemars(description = "Say what it would do, and do nothing.")]
     #[serde(default)]
     pub dry_run: bool,
 }
 
 impl UpdateResource {
-    /// The names of the fields that change, never their values.
     #[must_use]
     pub fn changed(&self) -> Vec<&'static str> {
         [
@@ -118,117 +116,118 @@ impl UpdateResource {
     }
 }
 
-/// `delete_resource`.
 #[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(description = "`delete_resource`.")]
 pub struct DeleteResource {
-    /// The id of the resource.
+    #[schemars(description = "The id of the resource.")]
     pub id: String,
-    /// Say what it would do, and do nothing.
+    #[schemars(description = "Say what it would do, and do nothing.")]
     #[serde(default)]
     pub dry_run: bool,
 }
 
-/// `move_resource`.
 #[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(description = "`move_resource`.")]
 pub struct MoveResource {
-    /// The id of the resource.
+    #[schemars(description = "The id of the resource.")]
     pub id: String,
-    /// The folder to move it to, by path or id; the root when absent.
+    #[schemars(description = "The folder to move it to, by path or id; the root when absent.")]
     pub folder: Option<String>,
-    /// Say what it would do, and do nothing.
+    #[schemars(description = "Say what it would do, and do nothing.")]
     #[serde(default)]
     pub dry_run: bool,
 }
 
-/// `create_folder`.
 #[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(description = "`create_folder`.")]
 pub struct CreateFolder {
-    /// The name of the folder.
+    #[schemars(description = "The name of the folder.")]
     pub name: String,
-    /// The folder to create it in, by path or id; the root when absent.
+    #[schemars(description = "The folder to create it in, by path or id; the root when absent.")]
     pub parent: Option<String>,
-    /// Say what it would do, and do nothing.
+    #[schemars(description = "Say what it would do, and do nothing.")]
     #[serde(default)]
     pub dry_run: bool,
 }
 
-/// `rename_folder`.
 #[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(description = "`rename_folder`.")]
 pub struct RenameFolder {
-    /// The folder, by path or id.
+    #[schemars(description = "The folder, by path or id.")]
     pub folder: String,
-    /// The new name.
+    #[schemars(description = "The new name.")]
     pub name: String,
-    /// Say what it would do, and do nothing.
+    #[schemars(description = "Say what it would do, and do nothing.")]
     #[serde(default)]
     pub dry_run: bool,
 }
 
-/// `move_folder`.
 #[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(description = "`move_folder`.")]
 pub struct MoveFolder {
-    /// The folder, by path or id.
+    #[schemars(description = "The folder, by path or id.")]
     pub folder: String,
-    /// The folder to move it into, by path or id; the root when absent.
+    #[schemars(description = "The folder to move it into, by path or id; the root when absent.")]
     pub parent: Option<String>,
-    /// Say what it would do, and do nothing.
+    #[schemars(description = "Say what it would do, and do nothing.")]
     #[serde(default)]
     pub dry_run: bool,
 }
 
-/// `delete_folder`.
 #[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(description = "`delete_folder`.")]
 pub struct DeleteFolder {
-    /// The folder, by path or id.
+    #[schemars(description = "The folder, by path or id.")]
     pub folder: String,
-    /// Also delete its subfolders and the resources the MCP user may delete in them; otherwise
-    /// they move up to the parent.
+    #[schemars(
+        description = "Also delete its subfolders and the resources the MCP user may delete in them; otherwise \
+        they move up to the parent."
+    )]
     #[serde(default)]
     pub with_content: bool,
-    /// Say what it would do, and do nothing.
+    #[schemars(description = "Say what it would do, and do nothing.")]
     #[serde(default)]
     pub dry_run: bool,
 }
 
-/// `set_favorite`.
 #[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(description = "`set_favorite`.")]
 pub struct SetFavorite {
-    /// The id of the resource.
+    #[schemars(description = "The id of the resource.")]
     pub id: String,
-    /// `true` to mark it, `false` to unmark it.
+    #[schemars(description = "`true` to mark it, `false` to unmark it.")]
     pub favorite: bool,
-    /// Say what it would do, and do nothing.
+    #[schemars(description = "Say what it would do, and do nothing.")]
     #[serde(default)]
     pub dry_run: bool,
 }
 
-/// `add_comment`.
 #[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(description = "`add_comment`.")]
 pub struct AddComment {
-    /// The id of the resource.
+    #[schemars(description = "The id of the resource.")]
     pub id: String,
-    /// The text of the comment.
+    #[schemars(description = "The text of the comment.")]
     pub content: String,
-    /// The comment it answers.
+    #[schemars(description = "The comment it answers.")]
     pub parent_id: Option<String>,
-    /// Say what it would do, and do nothing.
+    #[schemars(description = "Say what it would do, and do nothing.")]
     #[serde(default)]
     pub dry_run: bool,
 }
 
-/// `delete_comment`: a comment of the MCP user.
 #[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(description = "`delete_comment`: a comment of the MCP user.")]
 pub struct DeleteComment {
-    /// The id of the resource.
+    #[schemars(description = "The id of the resource.")]
     pub id: String,
-    /// The id of the comment, from `list_comments`.
+    #[schemars(description = "The id of the comment, from `list_comments`.")]
     pub comment_id: String,
-    /// Say what it would do, and do nothing.
+    #[schemars(description = "Say what it would do, and do nothing.")]
     #[serde(default)]
     pub dry_run: bool,
 }
 
-/// Where a folder argument points: its path for the messages, its id for Passbolt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Place {
     pub id: Option<String>,

@@ -10,8 +10,6 @@
 // @link          https://www.passbolt.com Passbolt(tm)
 // @since         0.1.0
 
-//! `docs/tools-reference.md`, written from the schemas of the tools.
-
 use std::fmt::Write;
 
 use serde_json::Value;
@@ -28,7 +26,6 @@ const SECTIONS: [(Access, &str, &str); 4] = [
     (Access::Share, "Sharing", "With `access.share = true`."),
 ];
 
-/// The type of a property, as the schema gives it.
 fn kind(schema: &Value) -> String {
     if let Some(name) = schema["$ref"].as_str() {
         return name.rsplit('/').next().unwrap_or(name).to_string();

@@ -30,11 +30,9 @@ use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, Stream
 use rmcp::ServiceExt;
 use tracing_subscriber::EnvFilter;
 
-/// An MCP server for Passbolt: an AI agent works with Passbolt through a user of its own.
 #[derive(Parser)]
 #[command(name = "passbolt-mcp", version, about)]
 struct Cli {
-    /// The configuration file [default: passbolt-mcp.toml in the configuration directory]
     #[arg(long, env = "PASSBOLT_MCP_CONFIG", global = true)]
     config: Option<PathBuf>,
 
@@ -44,22 +42,14 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Log in as the MCP user and serve the agent, over stdio (the default)
     Serve {
-        /// Serve over HTTP instead, at `http://ADDRESS/mcp`; a loopback address only
         #[arg(long, value_name = "ADDRESS")]
         http: Option<SocketAddr>,
     },
-    /// Pin the server key: run it once, before the first login
     Verify,
-    /// Log in as the MCP user and tell who it is and what it sees
     Check,
 }
 
-/// Logs go to stderr: in stdio, stdout carries the MCP messages.
-///
-/// `rmcp` stays at `info`, whatever `PASSBOLT_MCP_LOG` asks: at `debug`, it logs the messages it
-/// sends, secrets included.
 fn init_logs() {
     let filter = EnvFilter::try_from_env("PASSBOLT_MCP_LOG")
         .unwrap_or_else(|_| EnvFilter::new("warn"))
@@ -230,8 +220,6 @@ async fn serve(config: &Config, http: Option<SocketAddr>) -> anyhow::Result<()> 
     result
 }
 
-/// Every HTTP client shares the session of the MCP user. Requests from a web page (with an
-/// `Origin`) are refused, and only loopback host names are accepted: a page cannot reach it.
 async fn serve_http(address: SocketAddr, server: PassboltMcp) -> anyhow::Result<()> {
     let service: StreamableHttpService<PassboltMcp, LocalSessionManager> =
         StreamableHttpService::new(
@@ -246,7 +234,6 @@ async fn serve_http(address: SocketAddr, server: PassboltMcp) -> anyhow::Result<
     Ok(())
 }
 
-/// Ctrl-C, or SIGTERM from a service manager.
 async fn shutdown() {
     #[cfg(unix)]
     {

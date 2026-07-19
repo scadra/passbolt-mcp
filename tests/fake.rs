@@ -10,8 +10,6 @@
 // @link          https://www.passbolt.com Passbolt(tm)
 // @since         0.1.0
 
-//! `passbolt-mcp` against the fake Passbolt of the SDK tests: no server needed, run by the CI.
-
 mod common;
 
 use std::path::PathBuf;
@@ -27,7 +25,6 @@ use rmcp::transport::{ConfigureCommandExt, TokioChildProcess};
 use rmcp::{ClientHandler, ErrorData, RoleClient};
 use serde_json::{json, Value};
 
-/// A configuration directory for ada on the fake at `base_url`, with `extra` appended.
 struct Setup {
     dir: tempfile::TempDir,
 }
@@ -55,7 +52,6 @@ impl Setup {
         self.dir.path().join("passbolt-mcp.toml")
     }
 
-    /// Run `passbolt-mcp <args>`: success, stdout, stderr.
     async fn run(&self, args: &[&str]) -> (bool, String, String) {
         let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_passbolt-mcp"))
             .arg("--config")
@@ -72,14 +68,12 @@ impl Setup {
     }
 }
 
-/// Ada, with the role user: the fixture makes her an administrator.
 fn ada_as_user() -> Value {
     let mut ada = data::user("ada");
     ada["role"]["name"] = "user".into();
     ada
 }
 
-/// The fake Passbolt, ada a user who sees one resource and no folder, on HTTP: its URL.
 async fn fake() -> (FakePassbolt, String) {
     let fake = FakePassbolt::new();
     fake.with_directory();
@@ -237,7 +231,6 @@ async fn read_only_by_default() {
     client.cancel().await.unwrap();
 }
 
-/// A client whose person answers the confirmations of `[confirm]`; `None`: it cannot ask.
 struct Person {
     says: Option<ElicitationAction>,
     protocol: ProtocolVersion,
@@ -269,8 +262,6 @@ impl ClientHandler for Person {
 
 const CONFIRM_SECRETS: &str = "[access]\nsecrets = true\n[confirm]\ntools = [\"get_secret\"]\n";
 
-/// `get_secret`, by a client of `protocol` whose person `says`: the secret or the error code, and
-/// the outcomes of the audit file.
 async fn confirmed(
     says: Option<ElicitationAction>,
     protocol: ProtocolVersion,

@@ -10,8 +10,6 @@
 // @link          https://www.passbolt.com Passbolt(tm)
 // @since         0.1.0
 
-//! `passbolt-mcp.toml`.
-
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -26,12 +24,10 @@ pub struct Config {
     pub audit: AuditConfig,
     pub limits: LimitsConfig,
     pub confirm: ConfirmConfig,
-    /// The directory of the file, or the default one: where the server key is pinned.
     #[serde(skip)]
     pub dir: PathBuf,
 }
 
-/// `[passbolt]`: the MCP user and its server.
 #[derive(Debug, Default, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct PassboltConfig {
@@ -40,59 +36,44 @@ pub struct PassboltConfig {
     pub passphrase_file: Option<PathBuf>,
     pub passphrase_command: Option<Vec<String>>,
     pub totp_secret_file: Option<PathBuf>,
-    /// The server key pinned by `passbolt-mcp verify` [default: server-key.asc next to the file]
     pub server_key_file: Option<PathBuf>,
-    /// Accept any certificate: for a test server only.
     pub tls_skip_verify: bool,
-    /// `host:port:address`, like `curl --resolve`.
     pub resolve: Vec<String>,
-    /// How long a request to the server may take [default: 60]
     pub timeout_seconds: Option<u64>,
 }
 
-/// `passbolt-mcp.toml` in the configuration directory of the system.
 #[must_use]
 pub fn default_path() -> Option<PathBuf> {
     directories::ProjectDirs::from("", "", "passbolt-mcp")
         .map(|dirs| dirs.config_dir().join("passbolt-mcp.toml"))
 }
 
-/// `[access]`: what the agent may do. Reading metadata is always allowed; the rest is off.
 #[derive(Debug, Default, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AccessConfig {
     pub write: bool,
     pub secrets: bool,
     pub share: bool,
-    /// When not empty, only these tools.
     pub allow_tools: Vec<String>,
-    /// Never these tools.
     pub deny_tools: Vec<String>,
 }
 
-/// `[scope]`: where the agent may act.
 #[derive(Debug, Default, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ScopeConfig {
-    /// Folders, by path or id, with their subfolders. When not empty, nothing else is visible.
     pub folders: Vec<String>,
 }
 
-/// `[audit]`: what the agent did.
 #[derive(Debug, Default, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AuditConfig {
-    /// A JSON Lines file, one line per call; none by default.
     pub file: Option<PathBuf>,
 }
 
-/// `[limits]`: how many calls a minute, so that a runaway agent cannot read every secret.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct LimitsConfig {
-    /// Every tool together.
     pub calls_per_minute: u32,
-    /// `get_secret`, `get_totp_code` and `check_password_pwned` together.
     pub secrets_per_minute: u32,
 }
 
@@ -105,13 +86,10 @@ impl Default for LimitsConfig {
     }
 }
 
-/// `[confirm]`: the tools the person confirms before they run.
 #[derive(Debug, Default, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ConfirmConfig {
-    /// Asked to the person through the client (MCP elicitation), unless called with `dry_run`.
     pub tools: Vec<String>,
-    /// What to do with a client that cannot ask: refuse the call, the default, or let it run.
     pub unsupported: Unsupported,
 }
 
@@ -124,7 +102,6 @@ pub enum Unsupported {
 }
 
 impl Config {
-    /// `path` when given (`--config`, `PASSBOLT_MCP_CONFIG`), else the default file if any.
     pub fn find(path: Option<&Path>) -> Result<Self> {
         if let Some(path) = path {
             return Self::load(path);
@@ -158,7 +135,6 @@ impl Config {
         Ok(config.relative_to(path.parent().unwrap_or_else(|| Path::new(""))))
     }
 
-    /// Relative paths are relative to the directory of the file.
     fn relative_to(mut self, dir: &Path) -> Self {
         self.dir = dir.to_path_buf();
         let passbolt = &mut self.passbolt;

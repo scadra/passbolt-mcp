@@ -10,9 +10,6 @@
 // @link          https://www.passbolt.com Passbolt(tm)
 // @since         0.1.0
 
-//! What the secret tools return, with `access.secrets` only. A secret goes to the agent and
-//! nowhere else: never to the logs, the errors or the audit file.
-
 use rand::rngs::OsRng;
 use rand::seq::SliceRandom;
 use schemars::JsonSchema;
@@ -21,57 +18,59 @@ use serde_json::{Map, Value};
 
 use crate::error::ToolError;
 
-/// `get_secret`.
 #[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(description = "`get_secret`.")]
 pub struct GetSecret {
-    /// The id of the resource.
+    #[schemars(description = "The id of the resource.")]
     pub id: String,
-    /// The field of the secret: `password` by default, or `description`, the note of a v5 resource.
+    #[schemars(
+        description = "The field of the secret: `password` by default, or `description`, the note of a v5 resource."
+    )]
     pub field: Option<String>,
 }
 
-/// One field of the secret of a resource.
 #[derive(Serialize, JsonSchema)]
+#[schemars(description = "One field of the secret of a resource.")]
 pub struct SecretField {
     pub id: String,
     pub field: String,
-    /// The secret itself: use it for the task, do not repeat it.
+    #[schemars(description = "The secret itself: use it for the task, do not repeat it.")]
     pub value: String,
 }
 
-/// `get_totp_code`: the current code, never the seed.
 #[derive(Serialize, JsonSchema)]
+#[schemars(description = "`get_totp_code`: the current code, never the seed.")]
 pub struct TotpCode {
     pub id: String,
     pub code: String,
-    /// How long the code stays valid.
+    #[schemars(description = "How long the code stays valid.")]
     pub seconds_remaining: u64,
 }
 
-/// `check_password_pwned`.
 #[derive(Debug, Serialize, JsonSchema)]
+#[schemars(description = "`check_password_pwned`.")]
 pub struct Pwned {
     pub id: String,
-    /// The password is in a known breach: change it.
+    #[schemars(description = "The password is in a known breach: change it.")]
     pub pwned: bool,
-    /// How many times Have I Been Pwned saw it.
+    #[schemars(description = "How many times Have I Been Pwned saw it.")]
     pub breaches: u64,
 }
 
-/// `generate_password`.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(description = "`generate_password`.")]
 #[serde(default)]
 pub struct GeneratePassword {
-    /// 20 by default, from 8 to 128.
+    #[schemars(description = "20 by default, from 8 to 128.")]
     pub length: usize,
-    /// Lowercase letters; on by default.
+    #[schemars(description = "Lowercase letters; on by default.")]
     pub lowercase: bool,
-    /// Uppercase letters; on by default.
+    #[schemars(description = "Uppercase letters; on by default.")]
     pub uppercase: bool,
-    /// Digits; on by default.
+    #[schemars(description = "Digits; on by default.")]
     pub digits: bool,
-    /// Symbols; on by default.
+    #[schemars(description = "Symbols; on by default.")]
     pub symbols: bool,
 }
 
@@ -89,7 +88,9 @@ impl Default for GeneratePassword {
 
 #[derive(Serialize, JsonSchema)]
 pub struct GeneratedPassword {
-    /// Not saved anywhere: give it to `create_resource` or `update_resource`.
+    #[schemars(
+        description = "Not saved anywhere: give it to `create_resource` or `update_resource`."
+    )]
     pub password: String,
 }
 
@@ -98,7 +99,6 @@ const UPPERCASE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 const DIGITS: &[u8] = b"0123456789";
 const SYMBOLS: &[u8] = b"!#$%&()*+,-./:;<=>?@[]^_{|}~";
 
-/// A random password from the system randomness, with at least one character of each class.
 pub fn generate(args: &GeneratePassword) -> Result<String, ToolError> {
     if !(8..=128).contains(&args.length) {
         return Err(ToolError::invalid_argument("length: from 8 to 128".into()));
@@ -127,7 +127,6 @@ pub fn generate(args: &GeneratePassword) -> Result<String, ToolError> {
     Ok(String::from_utf8(password).expect("ASCII"))
 }
 
-/// The `field` of `secret`: a string. The TOTP has its own tool, which never gives the seed.
 pub fn field(secret: &Map<String, Value>, field: &str) -> Result<String, ToolError> {
     if field == "totp" {
         return Err(ToolError::invalid_argument(

@@ -10,9 +10,6 @@
 // @link          https://www.passbolt.com Passbolt(tm)
 // @since         0.1.0
 
-//! The server key, pinned on first use by `passbolt-mcp verify`: at each login, the server must
-//! prove it holds the private key, so a server pretending to be yours gets nothing.
-
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
@@ -22,7 +19,6 @@ use passbolt_sdk::{NativeHttpClient, NativeHttpConfig, OpenPgp};
 
 use crate::config::{Config, PassboltConfig};
 
-/// The HTTP client of every call to the server.
 pub fn http_client(config: &PassboltConfig) -> Result<NativeHttpClient> {
     if config.tls_skip_verify {
         tracing::warn!("tls_skip_verify: the certificate of the server is not checked");
@@ -56,17 +52,12 @@ fn parse_resolve(entry: &str) -> Result<(String, SocketAddr)> {
     Ok((host.to_string(), SocketAddr::new(address, port)))
 }
 
-/// What `verify` found.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Pinned {
-    /// Pinned now, with this fingerprint.
     New(String),
-    /// Already pinned, same key.
     Same(String),
 }
 
-/// Fetch the server key, and pin it unless one is pinned already. A key different from the
-/// pinned one is an error: the server, or a server pretending to be it, changed its identity.
 pub async fn verify(config: &Config) -> Result<Pinned> {
     let base_url = config.passbolt.server_url.trim_end_matches('/');
     if base_url.is_empty() {
@@ -103,7 +94,6 @@ fn compare(pinned: Option<String>, served: String) -> Result<Pinned> {
     }
 }
 
-/// The pinned key, for the login.
 pub fn read(config: &Config) -> Result<String> {
     let path = config.server_key_path();
     std::fs::read_to_string(&path).with_context(|| {

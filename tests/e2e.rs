@@ -10,9 +10,6 @@
 // @link          https://www.passbolt.com Passbolt(tm)
 // @since         0.1.0
 
-//! Against a Passbolt server: `PASSBOLT_MCP_E2E_CONFIG=passbolt-mcp.toml cargo test -- --ignored`,
-//! after `passbolt-mcp verify`.
-
 use std::path::Path;
 
 use passbolt_mcp::config::Config;

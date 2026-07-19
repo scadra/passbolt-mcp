@@ -10,8 +10,6 @@
 // @link          https://www.passbolt.com Passbolt(tm)
 // @since         0.1.0
 
-//! The session of the MCP user.
-
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
@@ -34,7 +32,6 @@ pub type Client = PassboltSdk<NativeHttpClient>;
 
 const KEEP_ALIVE: Duration = Duration::from_secs(5 * 60);
 
-/// What a login needs, kept to log in again.
 struct Credentials {
     config: PassboltConfig,
     private_key: Zeroizing<String>,
@@ -49,7 +46,6 @@ pub struct Session {
 }
 
 impl Session {
-    /// Log in as the MCP user.
     pub async fn open(config: &Config) -> Result<Self> {
         let path = &config.passbolt.private_key_file;
         let credentials = Credentials {
@@ -87,18 +83,15 @@ impl Session {
         self.client.read().await.clone()
     }
 
-    /// The MCP user, with its role.
     pub async fn me(&self) -> Result<User> {
         self.call(|client| async move { client.get_me().await })
             .await
     }
 
-    /// End the session on the server.
     pub async fn close(&self) {
         self.client().await.logout().await;
     }
 
-    /// Keep the session alive between calls of the agent, as the browser extension does.
     pub fn keep_alive(self: &Arc<Self>) -> tokio::task::JoinHandle<()> {
         let session = Arc::clone(self);
         tokio::spawn(async move {
@@ -116,7 +109,6 @@ impl Session {
         })
     }
 
-    /// Call the API; when the session expired, log in again and call once more.
     pub async fn call<T, F, Fut>(&self, call: F) -> Result<T>
     where
         T: Send,
@@ -133,7 +125,6 @@ impl Session {
         }
     }
 
-    /// Log in again, unless a concurrent call did already: the others wait for this login.
     async fn login_again(&self, expired: &Arc<Client>) -> Result<()> {
         let mut client = self.client.write().await;
         if Arc::ptr_eq(&client, expired) {
@@ -160,7 +151,6 @@ fn is_admin(user: &User) -> bool {
         .is_some_and(|name| name.eq_ignore_ascii_case("admin"))
 }
 
-/// `First Last <username>`.
 #[must_use]
 pub fn display_name(user: &User) -> String {
     let profile = user.profile.as_ref();

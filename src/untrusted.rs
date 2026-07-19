@@ -10,13 +10,6 @@
 // @link          https://www.passbolt.com Passbolt(tm)
 // @since         0.1.0
 
-//! What people write in Passbolt reaches the agent as data, without the characters that hide.
-//!
-//! Names, usernames, URIs, descriptions and comments: characters that do not show, and can hide instructions from the person who
-//! reads them, are taken out: Unicode tags, bidirectional controls, zero-width characters and
-//! control characters other than tabs and newlines.
-
-/// `text` without the characters that do not show.
 #[must_use]
 pub fn visible(text: &str) -> String {
     text.chars().filter(|&c| !hidden(c)).collect()

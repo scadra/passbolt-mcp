@@ -10,9 +10,6 @@
 // @link          https://www.passbolt.com Passbolt(tm)
 // @since         0.1.0
 
-//! The audit file: one JSON line per call of the agent, with the tool, the ids it named, the
-//! decision of the rules and the result. Never a secret: only the arguments that name things.
-
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::sync::Mutex;
@@ -24,8 +21,6 @@ use serde_json::{Map, Value};
 
 use crate::config::AuditConfig;
 
-/// The arguments written to the file: ids, paths, choices. Never passwords, notes,
-/// descriptions, comments nor names, which people write and secrets may hide in.
 const LOGGED: &[&str] = &[
     "id",
     "folder",
@@ -47,21 +42,17 @@ pub struct Audit {
     file: Option<Mutex<File>>,
 }
 
-/// One line of the file.
 #[derive(Debug, PartialEq, Eq, Serialize)]
 pub struct Entry {
     pub time: String,
     pub tool: String,
     pub arguments: Map<String, Value>,
-    /// `ok`, `refused` (the rules), `asked` (the person, through the client), `declined` (by
-    /// the person, or not asked), `error` (Passbolt or the arguments) or `protocol`.
     pub outcome: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
 }
 
 impl Audit {
-    /// The file of `[audit]`, appended to; none when not set.
     pub fn open(config: &AuditConfig) -> Result<Self> {
         let Some(path) = &config.file else {
             return Ok(Self::default());
@@ -81,7 +72,6 @@ impl Audit {
         })
     }
 
-    /// Write the line of a call; a failure to write is logged, not returned to the agent.
     pub fn record(
         &self,
         tool: &str,
@@ -93,7 +83,6 @@ impl Audit {
         }
     }
 
-    /// Write the line of a request that is not a tool call, such as `resources/read`.
     pub fn record_request(&self, method: &str, arguments: Map<String, Value>, error: Option<&str>) {
         if self.file.is_some() {
             self.write(&Entry {
@@ -126,7 +115,6 @@ impl Audit {
     }
 }
 
-/// The line of a call.
 #[must_use]
 pub fn entry(
     tool: &str,

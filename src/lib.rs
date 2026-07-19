@@ -10,8 +10,6 @@
 // @link          https://www.passbolt.com Passbolt(tm)
 // @since         0.1.0
 
-//! An MCP server for Passbolt: an AI agent works with Passbolt through a user of its own.
-
 pub mod audit;
 pub mod config;
 pub mod confirm;

@@ -10,8 +10,6 @@
 // @link          https://www.passbolt.com Passbolt(tm)
 // @since         0.1.0
 
-//! `scope.folders`: the folders the agent may act in, with their subfolders.
-
 use std::collections::{HashMap, HashSet};
 
 use anyhow::{anyhow, bail, Result};
@@ -20,12 +18,10 @@ use passbolt_sdk::types::Folder;
 
 #[derive(Debug, Default)]
 pub struct Scope {
-    /// `None`: everything the MCP user sees.
     folders: Option<HashSet<String>>,
 }
 
 impl Scope {
-    /// Resolve `scope.folders`, paths (`Agents/CI`) or ids, among the folders the MCP user sees.
     pub fn resolve(entries: &[String], folders: &[Folder]) -> Result<Self> {
         if entries.is_empty() {
             return Ok(Self::default());
@@ -39,7 +35,6 @@ impl Scope {
         Ok(Self { folders: Some(ids) })
     }
 
-    /// Whether a resource or folder in `folder_id` (`None`: at the root) is in the scope.
     #[must_use]
     pub fn contains(&self, folder_id: Option<&str>) -> bool {
         match (&self.folders, folder_id) {
@@ -49,14 +44,12 @@ impl Scope {
         }
     }
 
-    /// The folder ids of the scope, `None` for everything.
     #[must_use]
     pub const fn folders(&self) -> Option<&HashSet<String>> {
         self.folders.as_ref()
     }
 }
 
-/// The folder `entry` names, by id or by path (`Agents/CI`), among `folders`.
 pub fn find_folder<'a>(entry: &str, folders: &'a [Folder]) -> Result<&'a Folder> {
     let by_id = by_id(folders);
     if let Some(folder) = by_id.get(entry) {
@@ -73,7 +66,6 @@ pub fn find_folder<'a>(entry: &str, folders: &'a [Folder]) -> Result<&'a Folder>
     }
 }
 
-/// The path of each folder, by id.
 #[must_use]
 pub fn folder_paths(folders: &[Folder]) -> HashMap<String, String> {
     let by_id = by_id(folders);
@@ -90,7 +82,6 @@ fn by_id(folders: &[Folder]) -> HashMap<&str, &Folder> {
         .collect()
 }
 
-/// `Parent/Child`, from the highest parent the MCP user sees.
 fn path(folder: &Folder, by_id: &HashMap<&str, &Folder>) -> String {
     let mut names = vec![folder.name.as_str()];
     let mut current = folder;

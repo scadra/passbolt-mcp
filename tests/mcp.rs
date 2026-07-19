@@ -10,9 +10,6 @@
 // @link          https://www.passbolt.com Passbolt(tm)
 // @since         0.1.0
 
-//! An MCP client talking to `passbolt-mcp` over stdio, against a Passbolt server:
-//! `PASSBOLT_MCP_E2E_CONFIG=passbolt-mcp.toml cargo test -- --ignored`.
-
 use std::path::Path;
 
 use passbolt_mcp::config::Config;
@@ -27,7 +24,6 @@ fn config_path() -> String {
     std::env::var("PASSBOLT_MCP_E2E_CONFIG").expect("PASSBOLT_MCP_E2E_CONFIG")
 }
 
-/// Call `tool`, which must succeed.
 async fn call(client: &RunningService<RoleClient, ()>, tool: &'static str, args: Value) -> Value {
     let result = client
         .call_tool(
@@ -142,7 +138,6 @@ async fn comments() {
     client.cancel().await.unwrap();
 }
 
-/// The e2e configuration with `[access]` added, next to it so that its relative paths hold.
 struct ConfigWith(std::path::PathBuf);
 
 impl ConfigWith {
@@ -247,7 +242,6 @@ async fn client_with(config: &ConfigWith) -> RunningService<RoleClient, ()> {
         .unwrap()
 }
 
-/// Call `tool`, which must fail: its error.
 async fn refused(
     client: &RunningService<RoleClient, ()>,
     tool: &'static str,
@@ -402,12 +396,10 @@ async fn writes_stay_in_the_scope() {
     client.cancel().await.unwrap();
 }
 
-/// The user to share with: `PASSBOLT_MCP_E2E_SHARE_WITH`, a username.
 fn share_with() -> String {
     std::env::var("PASSBOLT_MCP_E2E_SHARE_WITH").expect("PASSBOLT_MCP_E2E_SHARE_WITH")
 }
 
-/// The ids of `aro` (`user` or `group`) in `get_permissions`.
 fn holders(permissions: &Value, aro: &str) -> Vec<(String, String)> {
     permissions["permissions"]
         .as_array()
@@ -627,7 +619,6 @@ async fn audit_without_secrets() {
     }
 }
 
-/// The JSON text of a `passbolt://` resource.
 async fn read(client: &RunningService<RoleClient, ()>, uri: &str) -> Value {
     let result = client
         .read_resource(rmcp::model::ReadResourceRequestParams::new(uri))

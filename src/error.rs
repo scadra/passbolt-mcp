@@ -10,8 +10,6 @@
 // @link          https://www.passbolt.com Passbolt(tm)
 // @since         0.1.0
 
-//! The error a tool returns to the agent: a message, and a code it can act on.
-
 use passbolt_sdk::{ApiError, PassboltError};
 use rmcp::handler::server::tool::IntoCallToolResult;
 use rmcp::model::{CallToolResponse, CallToolResult, ContentBlock};
@@ -21,11 +19,8 @@ use crate::rules::Refusal;
 
 #[derive(Debug, PartialEq, Eq, Serialize)]
 pub struct ToolError {
-    /// `refused`, `declined`, `unconfirmed`, `forbidden`, `not_found`, `invalid_argument`,
-    /// `auth`, `crypto`, `transport`, `api` or `internal`.
     pub code: &'static str,
     pub message: String,
-    /// The HTTP status Passbolt answered, if any.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<u16>,
 }
@@ -51,19 +46,16 @@ impl ToolError {
         Self::new("not_found", message)
     }
 
-    /// The person said no to a tool of `[confirm]`.
     #[must_use]
     pub const fn declined(message: String) -> Self {
         Self::new("declined", message)
     }
 
-    /// A tool of `[confirm]` the person could not be asked about.
     #[must_use]
     pub const fn unconfirmed(message: String) -> Self {
         Self::new("unconfirmed", message)
     }
 
-    /// What the permission of the MCP user does not allow, known before asking Passbolt.
     #[must_use]
     pub const fn forbidden(message: String) -> Self {
         Self::new("forbidden", message)

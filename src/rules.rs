@@ -10,9 +10,6 @@
 // @link          https://www.passbolt.com Passbolt(tm)
 // @since         0.1.0
 
-//! The MCP rules: what the agent may do with what the MCP user sees. A rule only takes away:
-//! Passbolt still refuses what the permission of the MCP user does not allow.
-
 use std::fmt;
 
 use anyhow::Result;
@@ -22,28 +19,20 @@ use crate::config::{AccessConfig, Config};
 use crate::scope::Scope;
 use crate::session::Session;
 
-/// What a tool needs from `[access]`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Access {
-    /// The metadata: always allowed.
     Read,
     Secrets,
     Write,
     Share,
 }
 
-/// Why the rules refuse, naming the rule.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Refusal {
-    /// `access.<key>` is false.
     Access(&'static str),
-    /// `access.deny_tools` lists the tool.
     Denied(String),
-    /// `access.allow_tools` does not list the tool.
     NotAllowed(String),
-    /// Outside `scope.folders`.
     OutOfScope,
-    /// Over `limits.<key>`.
     RateLimited(&'static str),
 }
 
@@ -72,19 +61,14 @@ impl fmt::Display for Refusal {
 
 impl std::error::Error for Refusal {}
 
-/// Passbolt permission types.
 const UPDATE: i32 = 7;
 const OWNER: i32 = 15;
 
-/// What the agent can do with the resources the MCP user sees: Passbolt and the rules together.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Rights {
-    /// In the scope: names, usernames, URIs, descriptions.
     pub read: usize,
     pub secrets: usize,
-    /// Shared with the MCP user as update or owner, with `access.write`.
     pub change: usize,
-    /// Shared with the MCP user as owner, with `access.share`.
     pub share: usize,
 }
 
@@ -100,7 +84,6 @@ impl Rules {
         Self { access, scope }
     }
 
-    /// The rules of `config`, the scope resolved among the folders the MCP user sees.
     pub async fn load(config: &Config, session: &Session) -> Result<Self> {
         let scope = if config.scope.folders.is_empty() {
             Scope::default()
@@ -123,8 +106,6 @@ impl Rules {
         &self.scope
     }
 
-    /// The rights of the agent on resources, given by their folder and the permission type of
-    /// the MCP user.
     pub fn rights<'a>(
         &self,
         resources: impl IntoIterator<Item = (Option<&'a str>, i32)>,
@@ -142,8 +123,6 @@ impl Rules {
         rights
     }
 
-    /// What `check` should tell the operator about the shares with the MCP user: what it sees
-    /// beyond the scope, and what the agent could share or delete.
     pub fn warnings<'a>(
         &self,
         resources: impl IntoIterator<Item = (Option<&'a str>, i32)> + Clone,
@@ -179,7 +158,6 @@ impl Rules {
         warnings
     }
 
-    /// Whether the agent may act on a resource or folder in `folder_id` (`None`: the root).
     pub fn reaches(&self, folder_id: Option<&str>) -> Result<(), Refusal> {
         if self.scope.contains(folder_id) {
             Ok(())
@@ -188,7 +166,6 @@ impl Rules {
         }
     }
 
-    /// Whether the agent gets `tool`, which needs `needs`.
     pub fn offers(&self, tool: &str, needs: Access) -> Result<(), Refusal> {
         if self.access.deny_tools.iter().any(|denied| denied == tool) {
             return Err(Refusal::Denied(tool.into()));

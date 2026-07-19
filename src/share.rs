@@ -10,9 +10,6 @@
 // @link          https://www.passbolt.com Passbolt(tm)
 // @since         0.1.0
 
-//! The arguments of the share tools, with `access.share` only. Only an owner shares, as in
-//! Passbolt; a permission is read, update, owner, or none to revoke it.
-
 use std::collections::BTreeSet;
 
 use passbolt_sdk::permission::Grant;
@@ -22,41 +19,43 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::ToolError;
 
-/// `share_resource` and `simulate_share`.
 #[derive(Debug, Default, Deserialize, JsonSchema)]
+#[schemars(description = "`share_resource` and `simulate_share`.")]
 pub struct ShareResource {
-    /// The id of the resource.
+    #[schemars(description = "The id of the resource.")]
     pub id: String,
-    /// Ids of users, from `search_aros`.
+    #[schemars(description = "Ids of users, from `search_aros`.")]
     #[serde(default)]
     pub users: Vec<String>,
-    /// Ids of groups, from `search_aros`.
+    #[schemars(description = "Ids of groups, from `search_aros`.")]
     #[serde(default)]
     pub groups: Vec<String>,
-    /// `read`, `update`, `owner`, or `none` to revoke their access.
+    #[schemars(description = "`read`, `update`, `owner`, or `none` to revoke their access.")]
     pub permission: String,
-    /// Say what it would do, and do nothing.
+    #[schemars(description = "Say what it would do, and do nothing.")]
     #[serde(default)]
     pub dry_run: bool,
 }
 
-/// `share_folder`.
 #[derive(Debug, Default, Deserialize, JsonSchema)]
+#[schemars(description = "`share_folder`.")]
 pub struct ShareFolder {
-    /// The folder, by path or id.
+    #[schemars(description = "The folder, by path or id.")]
     pub folder: String,
-    /// Ids of users, from `search_aros`.
+    #[schemars(description = "Ids of users, from `search_aros`.")]
     #[serde(default)]
     pub users: Vec<String>,
-    /// Ids of groups, from `search_aros`.
+    #[schemars(description = "Ids of groups, from `search_aros`.")]
     #[serde(default)]
     pub groups: Vec<String>,
-    /// `read`, `update`, `owner`, or `none` to revoke their access.
+    #[schemars(description = "`read`, `update`, `owner`, or `none` to revoke their access.")]
     pub permission: String,
-    /// Also on the subfolders and resources the MCP user owns, as the browser extension does.
+    #[schemars(
+        description = "Also on the subfolders and resources the MCP user owns, as the browser extension does."
+    )]
     #[serde(default = "yes")]
     pub with_content: bool,
-    /// Say what it would do, and do nothing.
+    #[schemars(description = "Say what it would do, and do nothing.")]
     #[serde(default)]
     pub dry_run: bool,
 }
@@ -65,7 +64,6 @@ const fn yes() -> bool {
     true
 }
 
-/// The Passbolt permission type of `permission`: -1 revokes.
 pub fn permission_type(permission: &str) -> Result<i32, ToolError> {
     match permission {
         "read" => Ok(1),
@@ -78,7 +76,6 @@ pub fn permission_type(permission: &str) -> Result<i32, ToolError> {
     }
 }
 
-/// `give read to 1 user and 2 groups on`, or `revoke the access of 1 user to`.
 pub fn describe(users: usize, groups: usize, permission: &str) -> Result<String, ToolError> {
     let plural =
         |count: usize, what: &str| format!("{count} {what}{}", if count == 1 { "" } else { "s" });
@@ -95,7 +92,6 @@ pub fn describe(users: usize, groups: usize, permission: &str) -> Result<String,
     })
 }
 
-/// The grants of an item once `users` and `groups` get `permission_type` (-1: removed).
 #[must_use]
 pub fn target(
     mut grants: Vec<Grant>,
@@ -120,7 +116,6 @@ pub fn target(
     grants
 }
 
-/// The users who reach an item through `grants`: directly, or as members of a group.
 fn users_of(grants: &[Grant], groups: &[Group]) -> BTreeSet<String> {
     let mut users = BTreeSet::new();
     for grant in grants {
@@ -138,8 +133,6 @@ fn users_of(grants: &[Grant], groups: &[Group]) -> BTreeSet<String> {
     users
 }
 
-/// The users who reach an item with `after` and not with `before`. Computed here: Passbolt
-/// cannot simulate a share while v5 metadata is still encrypted with a personal key.
 #[must_use]
 pub fn gaining(before: &[Grant], after: &[Grant], groups: &[Group]) -> Vec<String> {
     let before = users_of(before, groups);
@@ -149,12 +142,14 @@ pub fn gaining(before: &[Grant], after: &[Grant], groups: &[Group]) -> Vec<Strin
         .collect()
 }
 
-/// `simulate_share`.
 #[derive(Debug, Serialize, JsonSchema)]
+#[schemars(description = "`simulate_share`.")]
 pub struct Simulation {
-    /// What the share would do.
+    #[schemars(description = "What the share would do.")]
     pub action: String,
-    /// The users who would get access, group members included: `First Last <username>`.
+    #[schemars(
+        description = "The users who would get access, group members included: `First Last <username>`."
+    )]
     pub gaining_access: Vec<String>,
 }
 

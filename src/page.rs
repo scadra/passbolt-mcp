@@ -10,8 +10,6 @@
 // @link          https://www.passbolt.com Passbolt(tm)
 // @since         0.1.0
 
-//! Pages of the list tools: an agent asks for a few items at a time, not thousands.
-
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -20,27 +18,26 @@ use crate::error::ToolError;
 const DEFAULT_LIMIT: usize = 50;
 const MAX_LIMIT: usize = 200;
 
-/// The page arguments of a list tool.
 #[derive(Debug, Default, Deserialize, JsonSchema)]
+#[schemars(description = "The page arguments of a list tool.")]
 pub struct PageArgs {
-    /// At most this many items: 50 by default, 200 at most.
+    #[schemars(description = "At most this many items: 50 by default, 200 at most.")]
     pub limit: Option<usize>,
-    /// The `next_cursor` of the previous page, for the next one.
+    #[schemars(description = "The `next_cursor` of the previous page, for the next one.")]
     pub cursor: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, JsonSchema)]
 pub struct Page<T> {
     pub items: Vec<T>,
-    /// How many there are in all.
+    #[schemars(description = "How many there are in all.")]
     pub total: usize,
-    /// To get the next page; absent on the last one.
+    #[schemars(description = "To get the next page; absent on the last one.")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_cursor: Option<String>,
 }
 
 impl PageArgs {
-    /// The page of `items` these arguments ask for.
     pub fn page<T>(&self, items: Vec<T>) -> Result<Page<T>, ToolError> {
         let limit = self.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
         let start = match &self.cursor {

@@ -10,8 +10,6 @@
 // @link          https://www.passbolt.com Passbolt(tm)
 // @since         0.1.0
 
-//! `[limits]`: calls a minute, counted over the last sixty seconds.
-
 use std::collections::VecDeque;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -34,7 +32,6 @@ impl Window {
         }
     }
 
-    /// Room for one more call at `now`.
     fn has_room(&self, now: Instant) -> bool {
         let mut calls = self
             .calls
@@ -78,7 +75,6 @@ impl Limits {
         &self.config
     }
 
-    /// Count a call needing `needs`, unless it is over a limit.
     pub fn take(&self, needs: Option<Access>) -> Result<(), Refusal> {
         self.take_at(needs, Instant::now())
     }

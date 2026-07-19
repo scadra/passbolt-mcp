@@ -10,8 +10,6 @@
 // @link          https://www.passbolt.com Passbolt(tm)
 // @since         0.1.0
 
-//! The MCP server: the tools the agent calls, on the session of the MCP user.
-
 use std::sync::Arc;
 
 use passbolt_sdk::folder::create::create_folder;
@@ -90,19 +88,21 @@ pub struct PassboltMcp {
     prompt_router: PromptRouter<Self>,
 }
 
-/// `whoami`.
 #[derive(Debug, Serialize, JsonSchema)]
+#[schemars(description = "`whoami`.")]
 pub struct WhoAmI {
-    /// `First Last <username>`.
+    #[schemars(description = "`First Last <username>`.")]
     pub user: String,
     pub role: String,
-    /// What the rules allow beyond reading.
+    #[schemars(description = "What the rules allow beyond reading.")]
     pub secrets: bool,
     pub write: bool,
     pub share: bool,
-    /// The folders of `scope.folders`, with their subfolders; absent: everything the user sees.
+    #[schemars(
+        description = "The folders of `scope.folders`, with their subfolders; absent: everything the user sees."
+    )]
     pub scope_folders: Option<usize>,
-    /// The tools the person confirms before they run (`[confirm]`).
+    #[schemars(description = "The tools the person confirms before they run (`[confirm]`).")]
     pub confirm: Vec<String>,
 }
 
@@ -117,7 +117,6 @@ const fn moved_permissions(with_permissions: bool) -> &'static str {
 const RESOURCE_URI: &str = "passbolt://resource/";
 const FOLDER_URI: &str = "passbolt://folder/";
 
-/// The JSON-RPC error of a failed resource read.
 fn error_data(error: ToolError) -> ErrorData {
     let data = serde_json::to_value(&error).ok();
     if error.code == "not_found" {
@@ -127,7 +126,6 @@ fn error_data(error: ToolError) -> ErrorData {
     }
 }
 
-/// What each tool needs from the rules. A tool missing here is never offered.
 fn needs(tool: &str) -> Option<Access> {
     match tool {
         "whoami"
@@ -172,7 +170,6 @@ impl PassboltMcp {
         }
     }
 
-    /// The name of every tool, offered or not.
     #[must_use]
     pub fn tool_names() -> Vec<String> {
         Self::tool_router()
@@ -182,7 +179,6 @@ impl PassboltMcp {
             .collect()
     }
 
-    /// The tools the rules offer: the others are not listed, and cannot be called.
     fn router(rules: &Rules) -> ToolRouter<Self> {
         let mut router = Self::tool_router();
         for tool in router.list_all() {
@@ -199,7 +195,6 @@ impl PassboltMcp {
         router
     }
 
-    /// Every folder the MCP user sees, in the scope or not: to name them.
     async fn all_folders(&self) -> Result<Vec<Folder>, ToolError> {
         Ok(self
             .session
@@ -207,8 +202,10 @@ impl PassboltMcp {
             .await?)
     }
 
-    /// The resources the agent can see, with their names: never their secrets.
-    #[tool(annotations(read_only_hint = true))]
+    #[tool(
+        description = "The resources the agent can see, with their names: never their secrets.",
+        annotations(read_only_hint = true)
+    )]
     async fn list_resources(
         &self,
         Parameters(args): Parameters<ListResources>,
@@ -245,8 +242,10 @@ impl PassboltMcp {
         Ok(Json(args.page.page(resources)?))
     }
 
-    /// A resource: name, username, URIs, description, folder, dates. Never its secret.
-    #[tool(annotations(read_only_hint = true))]
+    #[tool(
+        description = "A resource: name, username, URIs, description, folder, dates. Never its secret.",
+        annotations(read_only_hint = true)
+    )]
     async fn get_resource(
         &self,
         Parameters(ById { id }): Parameters<ById>,
@@ -254,7 +253,6 @@ impl PassboltMcp {
         Ok(Json(self.resource_details(&id).await?))
     }
 
-    /// The JSON of a `passbolt://` URI.
     async fn read(&self, uri: &str) -> Result<String, ToolError> {
         let json = if let Some(id) = uri.strip_prefix(RESOURCE_URI) {
             serde_json::to_string(&self.resource_details(id).await?)
@@ -290,7 +288,6 @@ impl PassboltMcp {
         json.map_err(|error| ToolError::from(anyhow::Error::from(error)))
     }
 
-    /// What `get_resource` and `passbolt://resource/{id}` give.
     async fn resource_details(&self, id: &str) -> Result<ResourceDetails, ToolError> {
         let resource = self.resource_in_scope(id).await?;
         let client = self.session.client().await;
@@ -303,7 +300,6 @@ impl PassboltMcp {
         Ok(details)
     }
 
-    /// The id of the favorite the MCP user has on the resource `id`, if any.
     async fn favorite_of(&self, id: &str) -> Result<Option<String>, ToolError> {
         let favorites = self
             .session
@@ -323,12 +319,14 @@ impl PassboltMcp {
             .and_then(|favorite| favorite.id))
     }
 
-    /// Mark a resource as a favorite of the MCP user, or unmark it.
-    #[tool(annotations(
-        read_only_hint = false,
-        destructive_hint = false,
-        idempotent_hint = true
-    ))]
+    #[tool(
+        description = "Mark a resource as a favorite of the MCP user, or unmark it.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = true
+        )
+    )]
     async fn set_favorite(
         &self,
         Parameters(args): Parameters<SetFavorite>,
@@ -364,8 +362,10 @@ impl PassboltMcp {
         )))
     }
 
-    /// The folders the agent can see, with their paths.
-    #[tool(annotations(read_only_hint = true))]
+    #[tool(
+        description = "The folders the agent can see, with their paths.",
+        annotations(read_only_hint = true)
+    )]
     async fn list_folders(
         &self,
         Parameters(args): Parameters<ListFolders>,
@@ -387,8 +387,10 @@ impl PassboltMcp {
         Ok(Json(args.page.page(found)?))
     }
 
-    /// The folders the agent can see, as a tree.
-    #[tool(annotations(read_only_hint = true))]
+    #[tool(
+        description = "The folders the agent can see, as a tree.",
+        annotations(read_only_hint = true)
+    )]
     async fn folder_tree(&self) -> Result<Json<FolderTree>, ToolError> {
         let folders: Vec<Folder> = self
             .all_folders()
@@ -404,7 +406,6 @@ impl PassboltMcp {
         Ok(Json(FolderTree { roots }))
     }
 
-    /// The resource `id`, if the agent can see it.
     async fn resource_in_scope(
         &self,
         id: &str,
@@ -417,8 +418,10 @@ impl PassboltMcp {
         Ok(resource)
     }
 
-    /// The comments on a resource, oldest first.
-    #[tool(annotations(read_only_hint = true))]
+    #[tool(
+        description = "The comments on a resource, oldest first.",
+        annotations(read_only_hint = true)
+    )]
     async fn list_comments(
         &self,
         Parameters(ById { id }): Parameters<ById>,
@@ -437,8 +440,10 @@ impl PassboltMcp {
         }))
     }
 
-    /// Who has access to a resource or a folder, and how.
-    #[tool(annotations(read_only_hint = true))]
+    #[tool(
+        description = "Who has access to a resource or a folder, and how.",
+        annotations(read_only_hint = true)
+    )]
     async fn get_permissions(
         &self,
         Parameters(args): Parameters<GetPermissions>,
@@ -482,8 +487,10 @@ impl PassboltMcp {
         }))
     }
 
-    /// The resource types of the server: what a resource can hold.
-    #[tool(annotations(read_only_hint = true))]
+    #[tool(
+        description = "The resource types of the server: what a resource can hold.",
+        annotations(read_only_hint = true)
+    )]
     async fn list_resource_types(&self) -> Result<Json<ResourceTypes>, ToolError> {
         let types = self
             .session
@@ -502,8 +509,10 @@ impl PassboltMcp {
         }))
     }
 
-    /// Users and groups to share with.
-    #[tool(annotations(read_only_hint = true))]
+    #[tool(
+        description = "Users and groups to share with.",
+        annotations(read_only_hint = true)
+    )]
     async fn search_aros(
         &self,
         Parameters(args): Parameters<SearchAros>,
@@ -518,7 +527,6 @@ impl PassboltMcp {
         ))
     }
 
-    /// The decrypted secret of the resource `id`, if the agent can see it.
     async fn secret_of(&self, id: &str) -> Result<Map<String, Value>, ToolError> {
         let resource = self.resource_in_scope(id).await?;
         let client = self.session.client().await;
@@ -536,9 +544,11 @@ impl PassboltMcp {
         Ok(view.secret.unwrap_or_default())
     }
 
-    /// Whether the password of a resource is in a known breach, by k-anonymity: only the first
-    /// five characters of its SHA-1 leave, to Have I Been Pwned.
-    #[tool(annotations(read_only_hint = true, open_world_hint = true))]
+    #[tool(
+        description = "Whether the password of a resource is in a known breach, by k-anonymity: only the first \
+        five characters of its SHA-1 leave, to Have I Been Pwned.",
+        annotations(read_only_hint = true, open_world_hint = true)
+    )]
     async fn check_password_pwned(
         &self,
         Parameters(ById { id }): Parameters<ById>,
@@ -558,8 +568,10 @@ impl PassboltMcp {
         }))
     }
 
-    /// A new random password, saved nowhere.
-    #[tool(annotations(read_only_hint = true))]
+    #[tool(
+        description = "A new random password, saved nowhere.",
+        annotations(read_only_hint = true)
+    )]
     async fn generate_password(
         &self,
         Parameters(args): Parameters<GeneratePassword>,
@@ -569,8 +581,10 @@ impl PassboltMcp {
         }))
     }
 
-    /// One field of the secret of a resource: its password by default.
-    #[tool(annotations(read_only_hint = true))]
+    #[tool(
+        description = "One field of the secret of a resource: its password by default.",
+        annotations(read_only_hint = true)
+    )]
     async fn get_secret(
         &self,
         Parameters(args): Parameters<GetSecret>,
@@ -585,8 +599,10 @@ impl PassboltMcp {
         }))
     }
 
-    /// The current TOTP code of a resource; never its seed.
-    #[tool(annotations(read_only_hint = true))]
+    #[tool(
+        description = "The current TOTP code of a resource; never its seed.",
+        annotations(read_only_hint = true)
+    )]
     async fn get_totp_code(
         &self,
         Parameters(ById { id }): Parameters<ById>,
@@ -606,7 +622,6 @@ impl PassboltMcp {
         }))
     }
 
-    /// The folder `entry` names (by path or id), or the root when absent, if the agent may act there.
     async fn place(&self, entry: Option<&str>) -> Result<Place, ToolError> {
         let Some(entry) = entry else {
             self.rules.reaches(None)?;
@@ -624,9 +639,11 @@ impl PassboltMcp {
         })
     }
 
-    /// Create a resource, its secret encrypted for the MCP user; in a folder, it gets the
-    /// permissions of the folder.
-    #[tool(annotations(read_only_hint = false, destructive_hint = false))]
+    #[tool(
+        description = "Create a resource, its secret encrypted for the MCP user; in a folder, it gets the \
+        permissions of the folder.",
+        annotations(read_only_hint = false, destructive_hint = false)
+    )]
     async fn create_resource(
         &self,
         Parameters(args): Parameters<CreateResource>,
@@ -658,8 +675,6 @@ impl PassboltMcp {
         Ok(Json(WriteResult::new(false, action, Some(created.id))))
     }
 
-    /// The resource `id` with its name, if the agent can see it and the MCP user has at least
-    /// `needed` (7: update, 15: owner) on it.
     async fn resource_with(
         &self,
         id: &str,
@@ -685,8 +700,10 @@ impl PassboltMcp {
         Ok((resource, name))
     }
 
-    /// Change the fields given of a resource; a new secret is encrypted for everyone with access.
-    #[tool(annotations(read_only_hint = false, destructive_hint = false))]
+    #[tool(
+        description = "Change the fields given of a resource; a new secret is encrypted for everyone with access.",
+        annotations(read_only_hint = false, destructive_hint = false)
+    )]
     async fn update_resource(
         &self,
         Parameters(args): Parameters<UpdateResource>,
@@ -726,8 +743,10 @@ impl PassboltMcp {
         Ok(Json(WriteResult::new(false, action, Some(args.id.clone()))))
     }
 
-    /// Delete a resource, for everyone it is shared with. Try it with `dry_run` first.
-    #[tool(annotations(read_only_hint = false, destructive_hint = true))]
+    #[tool(
+        description = "Delete a resource, for everyone it is shared with. Try it with `dry_run` first.",
+        annotations(read_only_hint = false, destructive_hint = true)
+    )]
     async fn delete_resource(
         &self,
         Parameters(args): Parameters<DeleteResource>,
@@ -747,8 +766,10 @@ impl PassboltMcp {
         )))
     }
 
-    /// Move a resource to another folder of the scope.
-    #[tool(annotations(read_only_hint = false, destructive_hint = false))]
+    #[tool(
+        description = "Move a resource to another folder of the scope.",
+        annotations(read_only_hint = false, destructive_hint = false)
+    )]
     async fn move_resource(
         &self,
         Parameters(args): Parameters<MoveResource>,
@@ -780,16 +801,11 @@ impl PassboltMcp {
         )))
     }
 
-    /// A move gives the permissions of the destination, as the browser extension does, only when
-    /// the agent may share and the MCP user owns what moves: otherwise, moving into a shared
-    /// folder would share without `access.share`.
     fn moves_permissions(&self, permission: Option<&passbolt_sdk::types::Permission>) -> bool {
         self.rules.access().share
             && permission.and_then(|permission| permission.permission_type) == Some(15)
     }
 
-    /// The folder `entry` names, with its path, if the agent may act there and the MCP user has
-    /// at least `needed` (7: update, 15: owner) on it.
     async fn folder_with(&self, entry: &str, needed: i32) -> Result<(Folder, String), ToolError> {
         let folders = self.all_folders().await?;
         let folder = find_folder(entry, &folders)
@@ -814,8 +830,10 @@ impl PassboltMcp {
         Ok((folder, path))
     }
 
-    /// Create a folder; in a parent folder, it gets the permissions of the parent.
-    #[tool(annotations(read_only_hint = false, destructive_hint = false))]
+    #[tool(
+        description = "Create a folder; in a parent folder, it gets the permissions of the parent.",
+        annotations(read_only_hint = false, destructive_hint = false)
+    )]
     async fn create_folder(
         &self,
         Parameters(args): Parameters<CreateFolder>,
@@ -834,8 +852,10 @@ impl PassboltMcp {
         Ok(Json(WriteResult::new(false, action, Some(created.id))))
     }
 
-    /// Rename a folder.
-    #[tool(annotations(read_only_hint = false, destructive_hint = false))]
+    #[tool(
+        description = "Rename a folder.",
+        annotations(read_only_hint = false, destructive_hint = false)
+    )]
     async fn rename_folder(
         &self,
         Parameters(args): Parameters<RenameFolder>,
@@ -860,8 +880,10 @@ impl PassboltMcp {
         )))
     }
 
-    /// Move a folder, with its content, into another folder of the scope.
-    #[tool(annotations(read_only_hint = false, destructive_hint = false))]
+    #[tool(
+        description = "Move a folder, with its content, into another folder of the scope.",
+        annotations(read_only_hint = false, destructive_hint = false)
+    )]
     async fn move_folder(
         &self,
         Parameters(args): Parameters<MoveFolder>,
@@ -898,9 +920,11 @@ impl PassboltMcp {
         )))
     }
 
-    /// Delete a folder, for everyone it is shared with; with `with_content`, its subfolders and
-    /// resources too. Try it with `dry_run` first.
-    #[tool(annotations(read_only_hint = false, destructive_hint = true))]
+    #[tool(
+        description = "Delete a folder, for everyone it is shared with; with `with_content`, its subfolders and \
+        resources too. Try it with `dry_run` first.",
+        annotations(read_only_hint = false, destructive_hint = true)
+    )]
     async fn delete_folder(
         &self,
         Parameters(args): Parameters<DeleteFolder>,
@@ -931,8 +955,10 @@ impl PassboltMcp {
         )))
     }
 
-    /// Comment on a resource, as the MCP user.
-    #[tool(annotations(read_only_hint = false, destructive_hint = false))]
+    #[tool(
+        description = "Comment on a resource, as the MCP user.",
+        annotations(read_only_hint = false, destructive_hint = false)
+    )]
     async fn add_comment(
         &self,
         Parameters(args): Parameters<AddComment>,
@@ -955,8 +981,10 @@ impl PassboltMcp {
         Ok(Json(WriteResult::new(false, action, Some(comment.id))))
     }
 
-    /// Delete a comment the MCP user wrote on a resource.
-    #[tool(annotations(read_only_hint = false, destructive_hint = true))]
+    #[tool(
+        description = "Delete a comment the MCP user wrote on a resource.",
+        annotations(read_only_hint = false, destructive_hint = true)
+    )]
     async fn delete_comment(
         &self,
         Parameters(args): Parameters<DeleteComment>,
@@ -987,9 +1015,11 @@ impl PassboltMcp {
         )))
     }
 
-    /// Share a resource with users and groups, or revoke their access; the MCP user must own it.
-    /// Those who gain access get the secret, encrypted for them.
-    #[tool(annotations(read_only_hint = false, destructive_hint = true))]
+    #[tool(
+        description = "Share a resource with users and groups, or revoke their access; the MCP user must own it. \
+        Those who gain access get the secret, encrypted for them.",
+        annotations(read_only_hint = false, destructive_hint = true)
+    )]
     async fn share_resource(
         &self,
         Parameters(args): Parameters<ShareResource>,
@@ -1013,9 +1043,11 @@ impl PassboltMcp {
         )))
     }
 
-    /// Who would get access to a resource if it were shared so, group members included; shares
-    /// nothing.
-    #[tool(annotations(read_only_hint = true))]
+    #[tool(
+        description = "Who would get access to a resource if it were shared so, group members included; shares \
+        nothing.",
+        annotations(read_only_hint = true)
+    )]
     async fn simulate_share(
         &self,
         Parameters(args): Parameters<ShareResource>,
@@ -1054,9 +1086,11 @@ impl PassboltMcp {
         }))
     }
 
-    /// Share a folder with users and groups, or revoke their access; the MCP user must own it.
-    /// With `with_content` (the default), also on what it owns inside.
-    #[tool(annotations(read_only_hint = false, destructive_hint = true))]
+    #[tool(
+        description = "Share a folder with users and groups, or revoke their access; the MCP user must own it. \
+        With `with_content` (the default), also on what it owns inside.",
+        annotations(read_only_hint = false, destructive_hint = true)
+    )]
     async fn share_folder(
         &self,
         Parameters(args): Parameters<ShareFolder>,
@@ -1086,8 +1120,10 @@ impl PassboltMcp {
         )))
     }
 
-    /// The Passbolt user this server acts as, and what its rules allow.
-    #[tool(annotations(read_only_hint = true))]
+    #[tool(
+        description = "The Passbolt user this server acts as, and what its rules allow.",
+        annotations(read_only_hint = true)
+    )]
     async fn whoami(&self) -> Result<Json<WhoAmI>, ToolError> {
         let me = self.session.me().await?;
         let access = self.rules.access();
@@ -1109,7 +1145,6 @@ impl PassboltMcp {
 
 #[prompt_router]
 impl PassboltMcp {
-    /// The prompts the rules allow: `rotate_password` needs `access.write` and `access.secrets`.
     fn prompts(rules: &Rules) -> PromptRouter<Self> {
         let mut router = Self::prompt_router();
         let access = rules.access();
@@ -1119,8 +1154,9 @@ impl PassboltMcp {
         router
     }
 
-    /// Find the expired, expiring and breached passwords, and say what to do.
-    #[prompt]
+    #[prompt(
+        description = "Find the expired, expiring and breached passwords, and say what to do."
+    )]
     async fn audit_password_hygiene(
         &self,
         Parameters(args): Parameters<AuditArgs>,
@@ -1131,8 +1167,9 @@ impl PassboltMcp {
         )]
     }
 
-    /// Give a resource a new password, generated, checked and saved in Passbolt.
-    #[prompt]
+    #[prompt(
+        description = "Give a resource a new password, generated, checked and saved in Passbolt."
+    )]
     async fn rotate_password(
         &self,
         Parameters(args): Parameters<RotateArgs>,
@@ -1175,7 +1212,6 @@ impl ServerHandler for PassboltMcp {
         ]))
     }
 
-    /// The folders the agent can see; resources are read by their URI, from their id.
     async fn list_resources(
         &self,
         request: Option<PaginatedRequestParams>,
@@ -1204,7 +1240,6 @@ impl ServerHandler for PassboltMcp {
         Ok(result)
     }
 
-    /// `passbolt://resource/{id}` or `passbolt://folder/{id}`, within the rules and the limits.
     async fn read_resource(
         &self,
         request: ReadResourceRequestParams,
@@ -1229,7 +1264,6 @@ impl ServerHandler for PassboltMcp {
         .into())
     }
 
-    /// Every call goes through here: the limits, the tool, then the audit file.
     async fn call_tool(
         &self,
         request: CallToolRequestParams,

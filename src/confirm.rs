@@ -10,12 +10,6 @@
 // @link          https://www.passbolt.com Passbolt(tm)
 // @since         0.1.0
 
-//! `[confirm]`: the person says yes before a tool runs, through the client (MCP elicitation).
-//!
-//! Up to protocol 2025-11-25, the server asks the client (`elicitation/create`) during the call.
-//! From 2026-07-28, which forbids requests from the server, the call answers `input_required`
-//! with the question, and the client calls again with the answer and the `requestState` given.
-
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write;
 use std::sync::Mutex;
@@ -34,18 +28,13 @@ use crate::config::{ConfirmConfig, Unsupported};
 use crate::error::ToolError;
 use crate::untrusted;
 
-/// The key of the question in `inputRequests`, and of the answer in `inputResponses`.
 const KEY: &str = "confirm";
-/// How long the person has to answer.
 const WAIT: Duration = Duration::from_secs(300);
-/// Never shown to the person: they are secrets.
 const HIDDEN: &[&str] = &["password", "note"];
 
-/// What to do with a call.
 #[derive(Debug)]
 pub enum Gate {
     Go,
-    /// Answer `input_required`: the client asks the person, then calls again.
     Ask(InputRequiredResult),
     Refuse(ToolError),
 }
@@ -53,7 +42,6 @@ pub enum Gate {
 #[derive(Debug, Default)]
 pub struct Confirm {
     config: ConfirmConfig,
-    /// The questions asked with `input_required`, by `requestState`: the call they are about.
     pending: Mutex<HashMap<String, Pending>>,
 }
 
@@ -72,13 +60,11 @@ impl Confirm {
         }
     }
 
-    /// The tools of `[confirm]`.
     #[must_use]
     pub fn tools(&self) -> &[String] {
         &self.config.tools
     }
 
-    /// What `passbolt-mcp check` says of `[confirm]`: names that are no tool.
     #[must_use]
     pub fn warnings(&self, tools: &[String]) -> Vec<String> {
         self.config
@@ -94,7 +80,6 @@ impl Confirm {
         self.config.tools.iter().any(|name| name == tool)
     }
 
-    /// Whether the call may run: asks the person first when `[confirm]` lists the tool.
     pub async fn gate(
         &self,
         request: &CallToolRequestParams,
@@ -140,8 +125,6 @@ impl Confirm {
         }
     }
 
-    /// From protocol 2026-07-28: the answer of the person when the call carries it, the question
-    /// otherwise.
     fn round_trip(&self, request: &CallToolRequestParams, question: ElicitRequestParams) -> Gate {
         let tool = request.name.as_ref();
         let call = call(tool, request.arguments.as_ref());
@@ -169,7 +152,6 @@ impl Confirm {
         Gate::Ask(InputRequiredResult::new(Some(requests), Some(state)))
     }
 
-    /// A new question about `call`: its `requestState`.
     fn ask(&self, call: String) -> String {
         let mut bytes = [0u8; 16];
         rand::thread_rng().fill_bytes(&mut bytes);
@@ -190,7 +172,6 @@ impl Confirm {
         state
     }
 
-    /// Whether `state` is a question about `call`, still open; it is closed then.
     fn answered(&self, state: &str, call: &str) -> bool {
         let mut pending = self.pending();
         let open = pending
@@ -216,13 +197,10 @@ fn dry_run(arguments: Option<&JsonObject>) -> bool {
         .unwrap_or(false)
 }
 
-/// The tool and its arguments, to tie an answer to the call it was asked for.
 fn call(tool: &str, arguments: Option<&JsonObject>) -> String {
     serde_json::to_string(&(tool, arguments)).unwrap_or_default()
 }
 
-/// The question: the tool and its arguments, without the secrets nor hidden characters. They
-/// come from the agent: quoted, never taken as the words of `passbolt-mcp`.
 fn question(tool: &str, arguments: Option<&JsonObject>) -> ElicitRequestParams {
     let mut message = format!("The agent asks to run {tool} in Passbolt");
     let shown: Vec<String> = arguments
