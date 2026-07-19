@@ -299,7 +299,6 @@ impl PassboltMcp {
         let view = ResourceView::new(resource, metadata, &resource_types)?;
         let paths = folder_paths(&self.all_folders().await?);
         let mut details = ResourceDetails::new(&view, &paths);
-        // A single resource comes without its favorite.
         details.summary.favorite = self.favorite_of(id).await?.is_some();
         Ok(details)
     }
@@ -1142,7 +1141,6 @@ impl PassboltMcp {
     }
 }
 
-// The methods the macro writes are async without awaiting.
 #[allow(clippy::unused_async_trait_impl)]
 #[tool_handler(router = self.tool_router)]
 #[prompt_handler(router = self.prompt_router)]

@@ -267,7 +267,6 @@ mod tests {
             rules.offers("list_folders", Access::Read),
             Err(Refusal::NotAllowed("list_folders".into()))
         );
-        // Listed, but access.secrets is still false.
         assert_eq!(
             rules.offers("get_secret", Access::Secrets),
             Err(Refusal::Access("secrets"))

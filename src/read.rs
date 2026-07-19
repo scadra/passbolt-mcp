@@ -302,7 +302,6 @@ pub struct AroView {
 
 impl From<&Aro> for AroView {
     fn from(aro: &Aro) -> Self {
-        // Users have a username, groups a name.
         let (kind, name) = match (&aro.username, &aro.name) {
             (Some(username), _) => {
                 let profile = aro.profile.as_ref();

@@ -120,9 +120,7 @@ mod tests {
             limits.take_at(Some(Access::Secrets), now),
             Err(Refusal::RateLimited("secrets_per_minute"))
         );
-        // Reading metadata still works.
         assert!(limits.take_at(Some(Access::Read), now).is_ok());
-        // A minute later, room again.
         assert!(limits
             .take_at(Some(Access::Secrets), now + Duration::from_secs(61))
             .is_ok());

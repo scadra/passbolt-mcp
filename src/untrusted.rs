@@ -24,13 +24,9 @@ pub fn visible(text: &str) -> String {
 
 const fn hidden(c: char) -> bool {
     matches!(c,
-        // Unicode tags: invisible ASCII ("ASCII smuggling").
         '\u{E0000}'..='\u{E007F}'
-        // Bidirectional controls.
         | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}'
-        // Zero-width, word joiner, byte order mark.
         | '\u{200B}'..='\u{200D}' | '\u{2060}'..='\u{2064}' | '\u{FEFF}'
-        // Control characters, but tabs and newlines.
         | '\u{0}'..='\u{8}' | '\u{B}'..='\u{1F}' | '\u{7F}'..='\u{9F}')
 }
 

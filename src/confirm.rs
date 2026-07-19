@@ -149,7 +149,6 @@ impl Confirm {
             .input_responses
             .as_ref()
             .and_then(|responses| responses.get(KEY));
-        // Only an answer to a question of this server, about this very call, counts.
         if let (Some(state), Some(response)) = (&request.request_state, response) {
             if self.answered(state, &call) {
                 return serde_json::from_value::<ElicitResult>(response.clone()).map_or_else(

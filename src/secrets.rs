@@ -59,7 +59,6 @@ pub struct Pwned {
 }
 
 /// `generate_password`.
-// Four independent character classes, as the arguments of a tool.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(default)]

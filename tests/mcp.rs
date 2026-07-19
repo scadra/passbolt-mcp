@@ -113,7 +113,6 @@ async fn comments() {
     let client = client().await;
     let page = call(&client, "list_resources", json!({ "limit": 1 })).await;
     let id = page["items"][0]["id"].as_str().unwrap().to_string();
-    // Written in Passbolt, read through the MCP.
     let session = Session::open(&Config::load(Path::new(&config_path())).unwrap())
         .await
         .unwrap();
@@ -304,7 +303,6 @@ async fn writes() {
     .await;
     let id = created["id"].as_str().unwrap().to_string();
 
-    // A dry run changes nothing.
     let dry = call(
         &client,
         "delete_resource",
@@ -491,7 +489,6 @@ async fn sharing() {
         .iter()
         .any(|(holder, _)| holder == &user));
 
-    // On the folder and its content.
     call(
         &client,
         "share_folder",
@@ -532,7 +529,6 @@ async fn moves_share_only_with_access_share() {
     let shared = call(&client, "create_resource", make("shared")).await["id"].clone();
     let kept = call(&client, "create_resource", make("kept")).await["id"].clone();
 
-    // With access.share: the permissions of the folder.
     let moved = call(
         &client,
         "move_resource",
@@ -549,7 +545,6 @@ async fn moves_share_only_with_access_share() {
         .any(|(holder, _)| holder == &user));
     client.cancel().await.unwrap();
 
-    // Without: moving into a shared folder shares nothing.
     let writing = ConfigWith::new("write = true");
     let client = client_with(&writing).await;
     let moved = call(

@@ -147,7 +147,6 @@ async fn verify_pins_the_server_key() {
     );
     let (_, stdout, _) = setup.run(&["verify"]).await;
     assert!(stdout.contains("is pinned"));
-    // The fake serves one client: a new session for the next process.
     fake.rotate_csrf_token("csrf-second-session");
     let (ok, _, stderr) = setup.run(&["check"]).await;
     assert!(ok, "{stderr}");
@@ -156,7 +155,6 @@ async fn verify_pins_the_server_key() {
 #[tokio::test(flavor = "multi_thread")]
 async fn refuses_an_impostor() {
     let (fake, url) = fake().await;
-    // It serves the real server key, but holds another.
     fake.impersonated_with(&BETTY);
     let (ok, _, stderr) = Setup::new(&url, true, "").run(&["check"]).await;
     assert!(!ok);
@@ -281,7 +279,6 @@ async fn confirmed(
     let (_fake, url) = fake().await;
     let audit = "[audit]\nfile = \"audit.jsonl\"\n";
     let setup = Setup::new(&url, true, &format!("{audit}{CONFIRM_SECRETS}{extra}"));
-    // From 2026-07-28, no `initialize`: the client discovers the server.
     let lifecycle = if protocol.has_initialize() {
         ClientLifecycleMode::Initialize
     } else {

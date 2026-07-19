@@ -220,7 +220,6 @@ async fn serve(config: &Config, http: Option<SocketAddr>) -> anyhow::Result<()> 
         }
         anyhow::Ok(())
     };
-    // Until the client closes stdin, or a signal.
     let result = tokio::select! {
         result = running => result,
         () = shutdown() => Ok(()),

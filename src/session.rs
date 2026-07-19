@@ -194,7 +194,6 @@ async fn login(credentials: &Credentials) -> Result<Client> {
         server_verify_token: String::new(),
         openpgp: OpenPgp::default(),
     };
-    // MFA, when enforced for the MCP user: the code of its TOTP secret.
     let mfa = credentials
         .totp_secret
         .as_ref()
