@@ -181,7 +181,7 @@ pub struct DeleteFolder {
     pub folder: String,
     #[schemars(
         description = "Also delete its subfolders and the resources the MCP user may delete in them; otherwise \
-        they move up to the parent."
+        they move to the root, as do those it may not delete."
     )]
     #[serde(default)]
     pub with_content: bool,
