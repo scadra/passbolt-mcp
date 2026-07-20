@@ -14,10 +14,14 @@ use std::path::Path;
 
 use passbolt_mcp::config::Config;
 use passbolt_mcp::session::Session;
-use rmcp::model::CallToolRequestParams;
-use rmcp::service::RunningService;
+use rmcp::model::{
+    CallToolRequestParams, ClientCapabilities, ClientConfig, ElicitRequestParams, ElicitResult,
+    ElicitationAction, ElicitationCapability, FormElicitationCapability, Implementation,
+    ProtocolVersion,
+};
+use rmcp::service::{ClientLifecycleMode, ClientServiceExt, RequestContext, RunningService};
 use rmcp::transport::{ConfigureCommandExt, TokioChildProcess};
-use rmcp::{RoleClient, ServiceExt};
+use rmcp::{ClientHandler, ErrorData, RoleClient, ServiceExt};
 use serde_json::{json, Value};
 
 fn config_path() -> String {
@@ -140,10 +144,13 @@ async fn comments() {
 
 struct ConfigWith(std::path::PathBuf);
 
+static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 impl ConfigWith {
     fn new(access: &str) -> Self {
         let original = Path::new(&config_path()).to_path_buf();
-        let path = original.with_file_name(format!("e2e-{}.toml", std::process::id()));
+        let next = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = original.with_file_name(format!("e2e-{}-{next}.toml", std::process::id()));
         let text = std::fs::read_to_string(&original).unwrap();
         std::fs::write(&path, format!("{text}\n[access]\n{access}\n")).unwrap();
         Self(path)
@@ -175,7 +182,7 @@ async fn no_secrets_by_default() {
 #[tokio::test]
 #[ignore = "needs a Passbolt server"]
 async fn secrets_stay_out_of_the_logs() {
-    let config = ConfigWith::new("secrets = true");
+    let config = ConfigWith::new("secrets = true\nwrite = true");
     let command =
         tokio::process::Command::new(env!("CARGO_BIN_EXE_passbolt-mcp")).configure(|command| {
             command
@@ -199,27 +206,27 @@ async fn secrets_stay_out_of_the_logs() {
     let generated = call(&client, "generate_password", json!({ "length": 24 })).await;
     let password = generated["password"].as_str().unwrap().to_string();
     assert_eq!(password.len(), 24);
-    let page = call(&client, "list_resources", json!({ "limit": 50 })).await;
-    let mut secret = None;
-    for item in page["items"].as_array().unwrap() {
-        let result = client
-            .call_tool(
-                CallToolRequestParams::new("get_secret")
-                    .with_arguments(json!({ "id": item["id"] }).as_object().unwrap().clone()),
-            )
-            .await
-            .unwrap();
-        if result.is_error == Some(false) {
-            secret = Some(
-                result.structured_content.unwrap()["value"]
-                    .as_str()
-                    .unwrap()
-                    .to_string(),
-            );
-            break;
-        }
-    }
-    let secret = secret.expect("a resource with a password");
+    let root = format!("mcp-e2e-logs-{}", std::process::id());
+    call(&client, "create_folder", json!({ "name": root })).await;
+    let stored = "Logs-e2e-never-in-them-42";
+    let id = call(
+        &client,
+        "create_resource",
+        json!({ "name": format!("{root}-db"), "password": stored, "folder": root }),
+    )
+    .await["id"]
+        .clone();
+    let secret = call(&client, "get_secret", json!({ "id": id })).await["value"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(secret, stored);
+    call(
+        &client,
+        "delete_folder",
+        json!({ "folder": root, "with_content": true }),
+    )
+    .await;
     client.cancel().await.unwrap();
 
     let logs = logs.await.unwrap();
@@ -704,4 +711,594 @@ async fn prompts() {
         .iter()
         .any(|prompt| prompt.name == "rotate_password"));
     client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a Passbolt server"]
+async fn secret_tools() {
+    let config = ConfigWith::new("write = true\nsecrets = true");
+    let client = client_with(&config).await;
+    let root = format!("mcp-e2e-secrets-{}", std::process::id());
+    call(&client, "create_folder", json!({ "name": root })).await;
+    let created = call(
+        &client,
+        "create_resource",
+        json!({
+            "name": format!("{root}-weak"),
+            "username": "agent",
+            "password": "password",
+            "note": "the secret note",
+            "description": "not secret",
+            "uris": ["https://a.example.com", "https://b.example.com"],
+            "expiry": "2031-01-01T00:00:00Z",
+            "folder": root,
+        }),
+    )
+    .await;
+    let id = created["id"].as_str().unwrap().to_string();
+    let resource = call(&client, "get_resource", json!({ "id": id })).await;
+    assert_eq!(resource["description"], "not secret");
+    assert_eq!(
+        resource["uris"],
+        json!(["https://a.example.com", "https://b.example.com"])
+    );
+    assert!(resource["expiry"]
+        .as_str()
+        .unwrap()
+        .starts_with("2031-01-01"));
+
+    let secret = call(&client, "get_secret", json!({ "id": id })).await;
+    assert_eq!(secret["value"], "password");
+    let note = call(
+        &client,
+        "get_secret",
+        json!({ "id": id, "field": "description" }),
+    )
+    .await;
+    assert_eq!(note["value"], "the secret note");
+    let pwned = call(&client, "check_password_pwned", json!({ "id": id })).await;
+    assert_eq!(pwned["pwned"], true);
+    assert!(pwned["breaches"].as_u64().unwrap() > 1000);
+
+    let generated = call(&client, "generate_password", json!({ "length": 32 })).await["password"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    call(
+        &client,
+        "update_resource",
+        json!({ "id": id, "password": generated, "clear_expiry": true }),
+    )
+    .await;
+    assert_eq!(
+        call(&client, "get_secret", json!({ "id": id })).await["value"],
+        generated.as_str()
+    );
+    assert_eq!(
+        call(
+            &client,
+            "get_secret",
+            json!({ "id": id, "field": "description" })
+        )
+        .await["value"],
+        "the secret note"
+    );
+    assert!(call(&client, "get_resource", json!({ "id": id })).await["expiry"].is_null());
+    let safe = call(&client, "check_password_pwned", json!({ "id": id })).await;
+    assert_eq!(safe["pwned"], false);
+
+    let dry = call(
+        &client,
+        "delete_resource",
+        json!({ "id": id, "dry_run": true }),
+    )
+    .await;
+    assert_eq!(dry["dry_run"], true);
+    call(&client, "delete_resource", json!({ "id": id })).await;
+    assert_eq!(
+        refused(&client, "get_resource", json!({ "id": id })).await["code"],
+        "not_found"
+    );
+    call(
+        &client,
+        "delete_folder",
+        json!({ "folder": root, "with_content": true }),
+    )
+    .await;
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a Passbolt server"]
+async fn totp() {
+    let config = ConfigWith::new("write = true\nsecrets = true");
+    let client = client_with(&config).await;
+    let root = format!("mcp-e2e-totp-{}", std::process::id());
+    let folder = call(&client, "create_folder", json!({ "name": root })).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let session = Session::open(&Config::load(Path::new(&config_path())).unwrap())
+        .await
+        .unwrap();
+    let totp = passbolt_sdk::resource::create::create_resource(
+        &*session.client().await,
+        &passbolt_sdk::resource::create::NewResource {
+            name: format!("{root}-totp"),
+            totp: Some(passbolt_sdk::types::TotpData {
+                secret_key: Some("JBSWY3DPEHPK3PXP".into()),
+                algorithm: Some("SHA1".into()),
+                digits: Some(6),
+                period: Some(30),
+                ..Default::default()
+            }),
+            folder_parent_id: Some(folder),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    session.close().await;
+    let code = call(&client, "get_totp_code", json!({ "id": totp.id })).await;
+    let digits = code["code"].as_str().unwrap();
+    assert!(digits.len() == 6 && digits.bytes().all(|byte| byte.is_ascii_digit()));
+    assert!((1..=30).contains(&code["seconds_remaining"].as_u64().unwrap()));
+    assert!(!code.to_string().contains("JBSWY3DPEHPK3PXP"));
+    let seed = refused(
+        &client,
+        "get_secret",
+        json!({ "id": totp.id, "field": "totp" }),
+    )
+    .await;
+    assert!(!seed.to_string().contains("JBSWY3DPEHPK3PXP"));
+
+    call(
+        &client,
+        "delete_folder",
+        json!({ "folder": root, "with_content": true }),
+    )
+    .await;
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a Passbolt server"]
+async fn folders() {
+    let config = ConfigWith::new("write = true");
+    let client = client_with(&config).await;
+    let root = format!("mcp-e2e-folders-{}", std::process::id());
+    let dry = call(
+        &client,
+        "create_folder",
+        json!({ "name": root, "dry_run": true }),
+    )
+    .await;
+    assert_eq!(dry["dry_run"], true);
+    assert_eq!(
+        call(&client, "list_folders", json!({ "search": root })).await["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+    call(&client, "create_folder", json!({ "name": root })).await;
+    call(
+        &client,
+        "create_folder",
+        json!({ "name": "a", "parent": root }),
+    )
+    .await;
+    call(
+        &client,
+        "create_folder",
+        json!({ "name": "b", "parent": root }),
+    )
+    .await;
+    let created = call(
+        &client,
+        "create_resource",
+        json!({ "name": format!("{root}-in-a"), "password": "F-e2e-1x", "folder": format!("{root}/a") }),
+    )
+    .await;
+    let id = created["id"].clone();
+
+    call(
+        &client,
+        "rename_folder",
+        json!({ "folder": format!("{root}/a"), "name": "c" }),
+    )
+    .await;
+    call(
+        &client,
+        "move_folder",
+        json!({ "folder": format!("{root}/c"), "parent": format!("{root}/b") }),
+    )
+    .await;
+    let resource = call(&client, "get_resource", json!({ "id": id })).await;
+    assert_eq!(resource["folder"], format!("{root}/b/c"));
+    let listed = call(
+        &client,
+        "list_resources",
+        json!({ "folder": format!("{root}/b/c") }),
+    )
+    .await;
+    assert_eq!(listed["items"][0]["id"], id);
+    let found = call(
+        &client,
+        "list_resources",
+        json!({ "search": format!("{root}-IN-A") }),
+    )
+    .await;
+    assert_eq!(found["total"], 1);
+    let tree = call(&client, "folder_tree", json!({})).await;
+    let tree = tree.to_string();
+    assert!(tree.contains(&root) && tree.contains("\"c\""));
+
+    call(
+        &client,
+        "delete_folder",
+        json!({ "folder": format!("{root}/b/c") }),
+    )
+    .await;
+    let moved = call(&client, "get_resource", json!({ "id": id })).await;
+    assert!(moved["folder"].is_null(), "{moved}");
+    call(&client, "delete_resource", json!({ "id": id })).await;
+    call(
+        &client,
+        "delete_folder",
+        json!({ "folder": root, "with_content": true }),
+    )
+    .await;
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a Passbolt server"]
+async fn allow_and_deny_tools() {
+    let config = ConfigWith::new(
+        "secrets = true\nallow_tools = [\"whoami\", \"list_resources\", \"get_secret\"]\n\
+         deny_tools = [\"get_secret\"]",
+    );
+    let client = client_with(&config).await;
+    let mut names: Vec<String> = client
+        .list_all_tools()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|tool| tool.name.to_string())
+        .collect();
+    names.sort();
+    assert_eq!(names, ["list_resources", "whoami"]);
+    for hidden in ["get_secret", "list_folders"] {
+        let error = client
+            .call_tool(CallToolRequestParams::new(hidden))
+            .await
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("tool not found"),
+            "{hidden}: {error}"
+        );
+    }
+    call(&client, "list_resources", json!({ "limit": 1 })).await;
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a Passbolt server"]
+async fn limits() {
+    let config = ConfigWith::new("write = true");
+    let client = client_with(&config).await;
+    let root = format!("mcp-e2e-limits-{}", std::process::id());
+    call(&client, "create_folder", json!({ "name": root })).await;
+    let id = call(
+        &client,
+        "create_resource",
+        json!({ "name": format!("{root}-db"), "password": "Lim-e2e-1", "folder": root }),
+    )
+    .await["id"]
+        .clone();
+    client.cancel().await.unwrap();
+
+    let limited =
+        ConfigWith::new("secrets = true\n[limits]\ncalls_per_minute = 3\nsecrets_per_minute = 1");
+    let client = client_with(&limited).await;
+    call(&client, "get_secret", json!({ "id": id })).await;
+    let secrets = refused(&client, "get_secret", json!({ "id": id })).await;
+    assert_eq!(
+        secrets["message"],
+        "refused by the MCP rules: over limits.secrets_per_minute, try again in a minute"
+    );
+    call(&client, "whoami", json!({})).await;
+    call(&client, "whoami", json!({})).await;
+    let calls = refused(&client, "whoami", json!({})).await;
+    assert_eq!(
+        calls["message"],
+        "refused by the MCP rules: over limits.calls_per_minute, try again in a minute"
+    );
+    client.cancel().await.unwrap();
+
+    let client = client_with(&config).await;
+    call(
+        &client,
+        "delete_folder",
+        json!({ "folder": root, "with_content": true }),
+    )
+    .await;
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a Passbolt server"]
+async fn scope_on_reads() {
+    let config = ConfigWith::new("write = true");
+    let client = client_with(&config).await;
+    let root = format!("mcp-e2e-reads-{}", std::process::id());
+    call(&client, "create_folder", json!({ "name": root })).await;
+    let inside = call(
+        &client,
+        "create_resource",
+        json!({ "name": format!("{root}-in"), "password": "In-e2e-1", "folder": root }),
+    )
+    .await["id"]
+        .clone();
+    let outside = call(
+        &client,
+        "create_resource",
+        json!({ "name": format!("{root}-out"), "password": "Out-e2e-1" }),
+    )
+    .await["id"]
+        .clone();
+    client.cancel().await.unwrap();
+
+    let scoped = ConfigWith::new(&format!("secrets = true\n[scope]\nfolders = [\"{root}\"]"));
+    let client = client_with(&scoped).await;
+    let whoami = call(&client, "whoami", json!({})).await;
+    assert_eq!(whoami["scope_folders"], 1);
+    let listed = call(&client, "list_resources", json!({ "limit": 200 })).await;
+    let ids: Vec<&Value> = listed["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| &item["id"])
+        .collect();
+    assert_eq!(ids, [&inside]);
+    for tool in ["get_resource", "get_secret"] {
+        let refusal = refused(&client, tool, json!({ "id": outside })).await;
+        assert_eq!(refusal["code"], "refused", "{tool}");
+    }
+    assert_eq!(
+        call(&client, "get_secret", json!({ "id": inside })).await["value"],
+        "In-e2e-1"
+    );
+    let folders = call(&client, "list_folders", json!({})).await;
+    assert_eq!(folders["items"].as_array().unwrap().len(), 1);
+    client.cancel().await.unwrap();
+
+    let config = ConfigWith::new("write = true");
+    let client = client_with(&config).await;
+    call(&client, "delete_resource", json!({ "id": outside })).await;
+    call(
+        &client,
+        "delete_folder",
+        json!({ "folder": root, "with_content": true }),
+    )
+    .await;
+    client.cancel().await.unwrap();
+}
+
+struct Person {
+    says: Option<ElicitationAction>,
+    protocol: ProtocolVersion,
+}
+
+impl ClientHandler for Person {
+    fn create_elicitation(
+        &self,
+        request: ElicitRequestParams,
+        _context: RequestContext<RoleClient>,
+    ) -> impl std::future::Future<Output = Result<ElicitResult, ErrorData>> + Send + '_ {
+        let ElicitRequestParams::FormElicitationParams { message, .. } = request else {
+            panic!("a form");
+        };
+        assert!(message.contains("get_secret"), "{message}");
+        assert!(!message.contains("Conf-e2e-1"), "{message}");
+        std::future::ready(Ok(ElicitResult::new(self.says.clone().unwrap())))
+    }
+
+    fn get_info(&self) -> ClientConfig {
+        let mut capabilities = ClientCapabilities::default();
+        if self.says.is_some() {
+            capabilities.elicitation =
+                Some(ElicitationCapability::new().with_form(FormElicitationCapability::default()));
+        }
+        ClientConfig::new(capabilities, Implementation::from_build_env())
+            .with_protocol_version(self.protocol.clone())
+    }
+}
+
+/// `get_secret` of `id` as a person who says `says`, or cannot be asked.
+async fn ask(
+    config: &ConfigWith,
+    id: &Value,
+    says: Option<ElicitationAction>,
+    protocol: ProtocolVersion,
+) -> Result<String, String> {
+    let lifecycle = if protocol.has_initialize() {
+        ClientLifecycleMode::Initialize
+    } else {
+        ClientLifecycleMode::Discover {
+            preferred_versions: vec![protocol.clone()],
+        }
+    };
+    let path = config.0.to_str().unwrap().to_string();
+    let command =
+        tokio::process::Command::new(env!("CARGO_BIN_EXE_passbolt-mcp")).configure(|command| {
+            command.args(["--config", &path, "serve"]);
+        });
+    let client = Person { says, protocol }
+        .serve_with_lifecycle(TokioChildProcess::new(command).unwrap(), lifecycle)
+        .await
+        .unwrap();
+    let result = client
+        .call_tool(
+            CallToolRequestParams::new("get_secret")
+                .with_arguments(json!({ "id": id }).as_object().unwrap().clone()),
+        )
+        .await
+        .unwrap();
+    client.cancel().await.unwrap();
+    let content = result.structured_content.unwrap_or_default();
+    if result.is_error == Some(true) {
+        Err(content["code"].as_str().unwrap().to_string())
+    } else {
+        Ok(content["value"].as_str().unwrap().to_string())
+    }
+}
+
+#[tokio::test]
+#[ignore = "needs a Passbolt server"]
+async fn confirm() {
+    let config = ConfigWith::new("write = true");
+    let client = client_with(&config).await;
+    let root = format!("mcp-e2e-confirm-{}", std::process::id());
+    call(&client, "create_folder", json!({ "name": root })).await;
+    let id = call(
+        &client,
+        "create_resource",
+        json!({ "name": format!("{root}-db"), "password": "Conf-e2e-1", "folder": root }),
+    )
+    .await["id"]
+        .clone();
+    client.cancel().await.unwrap();
+
+    let dir = tempfile::tempdir().unwrap();
+    let audit = dir.path().join("audit.jsonl");
+    let confirming = ConfigWith::new(&format!(
+        "secrets = true\n[audit]\nfile = \"{}\"\n[confirm]\ntools = [\"get_secret\"]",
+        audit.display()
+    ));
+    let cases = [
+        (
+            Some(ElicitationAction::Accept),
+            ProtocolVersion::V_2025_11_25,
+            Ok("Conf-e2e-1"),
+        ),
+        (
+            Some(ElicitationAction::Decline),
+            ProtocolVersion::V_2025_11_25,
+            Err("declined"),
+        ),
+        (
+            Some(ElicitationAction::Accept),
+            ProtocolVersion::V_2026_07_28,
+            Ok("Conf-e2e-1"),
+        ),
+        (
+            Some(ElicitationAction::Cancel),
+            ProtocolVersion::V_2026_07_28,
+            Err("declined"),
+        ),
+        (None, ProtocolVersion::V_2025_11_25, Err("unconfirmed")),
+    ];
+    for (says, protocol, expected) in cases {
+        assert_eq!(
+            ask(&confirming, &id, says.clone(), protocol.clone()).await,
+            expected.map(String::from).map_err(String::from),
+            "{says:?} on {protocol}"
+        );
+    }
+    let outcomes: Vec<String> = std::fs::read_to_string(&audit)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap()["outcome"].to_string())
+        .collect();
+    assert_eq!(
+        outcomes,
+        [
+            "\"ok\"",
+            "\"declined\"",
+            "\"asked\"",
+            "\"ok\"",
+            "\"asked\"",
+            "\"declined\"",
+            "\"declined\""
+        ]
+    );
+
+    let client = client_with(&config).await;
+    call(
+        &client,
+        "delete_folder",
+        json!({ "folder": root, "with_content": true }),
+    )
+    .await;
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a Passbolt server"]
+async fn over_http() {
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let address = format!("127.0.0.1:{port}");
+    let mut server = tokio::process::Command::new(env!("CARGO_BIN_EXE_passbolt-mcp"))
+        .args(["--config", &config_path(), "serve", "--http", &address])
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    for _ in 0..600 {
+        if tokio::net::TcpStream::connect(&address).await.is_ok() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+
+    let transport =
+        rmcp::transport::StreamableHttpClientTransport::from_uri(format!("http://{address}/mcp"));
+    let client = ().serve(transport).await.unwrap();
+    let whoami = call(&client, "whoami", json!({})).await;
+    assert_eq!(whoami["role"], "user");
+    call(&client, "list_resources", json!({ "limit": 1 })).await;
+    client.cancel().await.unwrap();
+
+    let mut stream = tokio::net::TcpStream::connect(&address).await.unwrap();
+    let body = r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#;
+    let request = format!(
+        "POST /mcp HTTP/1.1\r\nHost: {address}\r\nOrigin: https://evil.example\r\n\
+         Content-Type: application/json\r\nAccept: application/json, text/event-stream\r\n\
+         Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    tokio::io::AsyncWriteExt::write_all(&mut stream, request.as_bytes())
+        .await
+        .unwrap();
+    let mut response = String::new();
+    tokio::io::AsyncReadExt::read_to_string(&mut stream, &mut response)
+        .await
+        .unwrap();
+    assert!(response.starts_with("HTTP/1.1 403"), "{response}");
+    server.kill().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a Passbolt server"]
+async fn check_command() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_passbolt-mcp"))
+        .args(["--config", &config_path(), "check"])
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&output.stdout).to_string()
+        + &String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{text}");
+    assert!(
+        text.contains("Logged in as") && text.contains("role user"),
+        "{text}"
+    );
+    assert!(
+        text.contains("Scope: everything the MCP user sees"),
+        "{text}"
+    );
 }
