@@ -201,7 +201,7 @@ Delete a folder, for everyone it is shared with; with `with_content`, its subfol
 |---|---|---|
 | `dry_run` | boolean | Say what it would do, and do nothing. |
 | `folder` (required) | string | The folder, by path or id. |
-| `with_content` | boolean | Also delete its subfolders and the resources the MCP user may delete in them; otherwise they move up to the parent. |
+| `with_content` | boolean | Also delete its subfolders and the resources the MCP user may delete in them; otherwise they move to the root, as do those it may not delete. |
 
 ### `delete_resource`
 

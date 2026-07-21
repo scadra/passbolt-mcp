@@ -30,7 +30,7 @@ zeroize = "1"
 futures-executor = "0.3"
 # The versions passbolt-sdk uses, for its test helpers (tests/common).
 pgp = { version = "0.21", default-features = false }
-rmcp = { version = "3.9", features = ["client", "elicitation", "transport-child-process"] }
+rmcp = { version = "3.9", features = ["client", "elicitation", "transport-child-process", "transport-streamable-http-client-reqwest"] }
 tempfile = "3"
 url = "2"
 uuid = { version = "1", features = ["v4"] }

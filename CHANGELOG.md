@@ -8,6 +8,13 @@ This project adheres to [Semantic Versioning](http://semver.org/).
   elicitation: `input_required` from protocol 2026-07-28, `elicitation/create` before); a client
   that cannot ask is refused, or allowed with `unsupported = "allow"`. `whoami` and `check` list
   them; the audit file writes `asked` and `declined`
+- Tests against a real Passbolt server for every tool, the rules, `[confirm]` and HTTP
+- The roadmap, in the documentation
+
+### Fixed
+- Builds with Rust 1.99, which refuses a `schemars` attribute before its derive
+- `delete_folder` without `with_content` says what Passbolt does: the content moves to the root,
+  not to the parent
 
 ## [0.1.0] - 2026-07-09
 ### Added
