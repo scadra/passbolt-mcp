@@ -28,7 +28,9 @@ An agent with access to a password manager is a target. This page lists what can
 - A compromised machine running the MCP server: while the agent runs, the key and its passphrase
   are in memory.
 - What the MCP client does with the answers: a secret given to the agent is in its context, and
-  may reach the model provider. Keep `access.secrets` off unless the agent truly needs it.
+  may reach the model provider. Keep `access.secrets` off unless the agent truly needs it. The
+  [roadmap](roadmap.md#use-a-password-without-seeing-it) says how the agent will use a secret
+  without seeing it.
 
 ## Checklist
 

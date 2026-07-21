@@ -56,6 +56,7 @@ module.exports = {
           { to: "/rules", label: "Rules", position: "left" },
           { to: "/tools", label: "Tools", position: "left" },
           { to: "/security", label: "Security", position: "left" },
+          { to: "/roadmap", label: "Roadmap", position: "left" },
           { href: "https://www.passbolt.com/docs", label: "Passbolt docs", position: "right" },
           { href: `https://github.com/${repository}`, label: "GitHub", position: "right" },
         ],
@@ -71,6 +72,7 @@ module.exports = {
               { label: "Rules", to: "/rules" },
               { label: "Tools", to: "/tools" },
               { label: "Security", to: "/security" },
+              { label: "Roadmap", to: "/roadmap" },
             ],
           },
           {
