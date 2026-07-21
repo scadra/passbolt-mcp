@@ -30,7 +30,7 @@ fails when it is out of date: `UPDATE_DOCS=1 cargo test tools_reference` writes 
 | `src/**` | the rules, the scope, the limits, the audit, what the tools return | nothing |
 | `tests/cli.rs` | `--version`, `--help`, a missing configuration | nothing |
 | `tests/fake.rs` | `passbolt-mcp` itself, against a fake Passbolt: login, administrators refused, `verify`, a server that cannot prove its key, the tools over stdio | nothing |
-| `tests/e2e.rs`, `tests/mcp.rs` | everything, against a real Passbolt server: reading, secrets, writing, sharing, the audit file, resources and prompts | a server (`--ignored`) |
+| `tests/e2e.rs`, `tests/mcp.rs` | everything, against a real Passbolt server: every tool, the rules (access, scope, limits, audit), `[confirm]` on both protocols, HTTP, `check`; resources and prompts | a server (`--ignored`) |
 
 The fake Passbolt is the one of the SDK tests (`tests/common`, copied from `passbolt-sdk` at the
 version this crate uses, with its test keys in `tests/fixtures`), behind a local HTTP server: the
@@ -49,7 +49,8 @@ E2E_THREADS=1 scripts/e2e.sh  # one test at a time
 
 The script writes a configuration in a temporary directory, pins the server key, and runs the
 ignored tests. The tests that write work in folders of their own (`mcp-e2e-…`) and delete them
-at the end.
+at the end; they need no data of the server but the user to share with. `check_password_pwned`
+asks Have I Been Pwned.
 
 ## Try it with MCP Inspector
 
