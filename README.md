@@ -51,7 +51,7 @@ What the agent can do is limited twice, and it only gets what **both** allow:
 | Barrier | Set by | Limits |
 |---|---|---|
 | **The MCP user, in Passbolt** | the administrator and the owners of the resources, in Passbolt | what the agent can **see**: only the resources and folders shared with that user (or its group), with the permission given (read, update, owner). Its role is `user`, never `admin`. |
-| **The MCP rules, in `passbolt-mcp`** | whoever runs the MCP server, in its configuration | what the agent can **do**: which tools it gets, read only or write, secrets or not, which folders. Everything beyond reading is off by default. |
+| **The MCP rules, in `passbolt-mcp`** | whoever runs the MCP server, in its configuration | what the agent can **do**: which tools it gets, read only or write, secrets or not, which folders, how often; which calls a person must approve. Everything beyond reading is off by default. |
 
 So:
 
@@ -61,11 +61,22 @@ So:
   and the history of each resource.
 - Suspending or deleting the MCP user cuts everything.
 
+On top of the two barriers, a **person** can stay in the loop: with `[confirm]`, the tools listed
+(`get_secret`, the deletes, the shares…) run only after the person says yes in the client, and the
+agent cannot answer for them. Every call is written to an audit file, never a secret.
+
 ### What the agent can do
 
-- Find resources and folders, and read their name, username, URIs and description.
-- With the rules allowing it: read a password or a TOTP code, create, update, move and delete
-  resources and folders, share them.
+- Find resources and folders, and read their name, username, URIs, description, comments and
+  permissions.
+- With the rules allowing it:
+  - **secrets**: read a password or a note, get a TOTP code (never its seed), check a password
+    against Have I Been Pwned, generate one;
+  - **writing**: create, update, move and delete resources and folders, comment, mark favorites,
+    each with a `dry_run`;
+  - **sharing**: find users and groups, simulate a share, share and revoke.
+
+27 tools in all, plus MCP resources and prompts: see the [tools](docs/tools.md).
 
 ### What it cannot do
 
@@ -73,6 +84,7 @@ So:
 - Do more than the permission Passbolt gives the MCP user: a resource shared as **Read** stays read
   only, whatever the rules say.
 - Act as an administrator: `passbolt-mcp` refuses to run as one.
+- Go faster than `[limits]` allow, in calls or secrets per minute.
 
 ### Example
 
@@ -113,7 +125,8 @@ Claude Desktop, Cursor, VS Code, Codex, Docker, HTTP: see [connect a client](doc
 
 ## Documentation
 
-The documentation is in [`docs/`](docs/README.md):
+The documentation is published at **https://scadra.github.io/passbolt-mcp/**, from
+[`docs/`](docs/README.md):
 
 - [Introduction](docs/README.md)
 - [Installation](docs/getting-started/installation.md) and [quick start](docs/getting-started/quick-start.md)
@@ -123,9 +136,17 @@ The documentation is in [`docs/`](docs/README.md):
 - [Tools](docs/tools.md): what the agent can call, and the [reference](docs/tools-reference.md)
 - [Example prompts](docs/examples.md)
 - [Security](docs/security.md)
+- [Roadmap](docs/roadmap.md): what comes next, and how the agent will use a password without
+  seeing it
 - [Troubleshooting](docs/troubleshooting.md)
 - [Development](docs/contributing/development.md)
 - [Changelog](CHANGELOG.md)
+
+## Tests
+
+Every tool, every rule, `[confirm]` and HTTP are tested against a real Passbolt server, through a
+real MCP client running the binary (`scripts/e2e.sh`); unit tests and a fake Passbolt cover the
+rest on each pull request. See [development](docs/contributing/development.md).
 
 ## Reporting a security issue
 

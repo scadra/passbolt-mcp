@@ -28,7 +28,8 @@ and understands both v4 resources and v5 encrypted metadata.
 - **The MCP rules** are the configuration of `passbolt-mcp`: which tools the agent gets, whether it
   may write, read secrets or share, and in which folders. See [rules](rules.md).
 
-The agent gets what both allow, never more.
+The agent gets what both allow, never more. With `[confirm]`, a person also approves the tools
+listed, in the client, before they run; every call is written to an audit file, never a secret.
 
 ## Where to start
 
@@ -40,6 +41,8 @@ The agent gets what both allow, never more.
   and [example prompts](examples.md).
 - **When something fails**: [troubleshooting](troubleshooting.md).
 - **Before giving it secrets**: read [security](security.md).
+- **What comes next**: the [roadmap](roadmap.md), and how the agent will use a password without
+  seeing it.
 - **Work on passbolt-mcp itself**: [development](contributing/development.md).
 
 ## License
