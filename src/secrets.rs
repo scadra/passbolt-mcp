@@ -35,7 +35,14 @@ pub struct SecretField {
     pub id: String,
     pub field: String,
     #[schemars(description = "The secret itself: use it for the task, do not repeat it.")]
-    pub value: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    #[schemars(
+        description = "With `access.mask_secrets`, in place of the value: give it to `create_resource`, \
+        `update_resource` or `run_with_secret`. It works on this server only, for 15 minutes."
+    )]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub handle: Option<String>,
 }
 
 #[derive(Serialize, JsonSchema)]
@@ -91,7 +98,14 @@ pub struct GeneratedPassword {
     #[schemars(
         description = "Not saved anywhere: give it to `create_resource` or `update_resource`."
     )]
-    pub password: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub password: Option<String>,
+    #[schemars(
+        description = "With `access.mask_secrets`, in place of the password: give it to `create_resource` \
+        or `update_resource`. It works on this server only, for 15 minutes."
+    )]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub handle: Option<String>,
 }
 
 const LOWERCASE: &[u8] = b"abcdefghijklmnopqrstuvwxyz";
