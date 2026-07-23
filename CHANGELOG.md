@@ -10,6 +10,10 @@ This project adheres to [Semantic Versioning](http://semver.org/).
   them; the audit file writes `asked` and `declined`
 - Tests against a real Passbolt server for every tool, the rules, `[confirm]` and HTTP
 - The roadmap, in the documentation
+- `access.mask_secrets`: `get_secret` and `generate_password` return a handle in place of the
+  value, which `create_resource` and `update_resource` take
+- `run_with_secret` and `[commands]`: `passbolt-mcp` runs a command of the configuration with a
+  password in its environment, and gives back its output with the password taken out
 
 ### Fixed
 - Builds with Rust 1.99, which refuses a `schemars` attribute before its derive

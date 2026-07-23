@@ -72,6 +72,7 @@ histories, process lists and backups.
 | `write` | `false` | create, update, move and delete resources and folders, tags, comments |
 | `secrets` | `false` | read the secret of a resource (password, TOTP code…) |
 | `share` | `false` | share resources and folders |
+| `mask_secrets` | `false` | secrets come as handles, never as values: see [`[commands]`](#commands-use-a-secret-without-seeing-it) |
 | `allow_tools` | `[]` | when not empty, only these tools |
 | `deny_tools` | `[]` | never these tools, even if allowed above |
 
@@ -115,7 +116,7 @@ refused.
 | Key | Default | What |
 |---|---|---|
 | `calls_per_minute` | `120` | every tool together |
-| `secrets_per_minute` | `20` | `get_secret`, `get_totp_code` and `check_password_pwned` together |
+| `secrets_per_minute` | `20` | `get_secret`, `get_totp_code`, `check_password_pwned`, `generate_password` and `run_with_secret` together |
 
 Over a limit, a call is refused (`refused by the MCP rules: over limits.secrets_per_minute…`)
 until the calls of the last minute make room: a runaway agent cannot read every secret at once.
@@ -147,6 +148,49 @@ not to the model. A call with `dry_run` is not asked: it changes nothing.
 
 `passbolt-mcp check` lists them, and warns about names that are no tool. The audit file writes
 `asked` when the question goes out, and `declined` on a "no".
+
+## `[commands]`: use a secret without seeing it
+
+With `access.mask_secrets = true`, `get_secret` and `generate_password` return a **handle**,
+such as `passbolt:secret/7f3c…`, in place of the value. `create_resource` and `update_resource`
+take a handle wherever they take a password or a note. A handle lives in the memory of
+`passbolt-mcp` only, for 15 minutes: it is worth nothing anywhere else.
+
+To use the secret outside Passbolt, the agent calls `run_with_secret` with a command declared
+here; it cannot write one.
+
+```toml
+[access]
+secrets = true
+mask_secrets = true
+
+[commands.psql-staging]
+description = "A query on the staging database"
+run = ["psql", "-h", "db.staging", "-U", "agent", "-c", "{query}"]
+env = { PGPASSWORD = "{secret}", PGSSLMODE = "require" }
+
+[commands.deploy]
+run = ["./deploy.sh", "{environment}"]
+env = { DEPLOY_TOKEN = "passbolt:8f0b2c1e-…" }
+timeout_seconds = 300
+```
+
+| Key | Default | What |
+|---|---|---|
+| `run` | required | the program and its arguments. `{name}` is an argument the agent gives; no shell runs, so it cannot add a command. A secret is never in the arguments, which other processes can read. |
+| `env` | `{}` | variables of the command: `"{secret}"`, the password of the handle or the resource id the agent gives; `"passbolt:<id>"`, the password of that resource; anything else, as is |
+| `description` | none | for the agent, in `whoami` |
+| `timeout_seconds` | `60` | the command is stopped after it |
+
+What the command prints comes back to the agent with each secret it got replaced with
+`[secret]`: as is, in base64, URL-encoded and in hexadecimal. A resource is read within
+`scope.folders`, like any secret. The audit file writes the name of the command, never its
+arguments.
+
+Masking is worth only as much as the separation between the agent and `passbolt-mcp`: an agent with
+a shell, as the same OS user, can read the private key of the MCP user. Run `passbolt-mcp` as
+another user, or in Docker; `passbolt-mcp check` reminds you. The
+[roadmap](roadmap.md#use-a-password-without-seeing-it) says what comes next.
 
 ## Effective rights
 
