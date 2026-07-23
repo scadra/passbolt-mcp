@@ -54,7 +54,7 @@ pub struct CreateResource {
     pub uris: Vec<String>,
     #[schemars(description = "The description, in the metadata: not secret.")]
     pub description: Option<String>,
-    #[schemars(description = "From `generate_password`, for instance.")]
+    #[schemars(description = "From `generate_password`, for instance; a handle works too.")]
     pub password: Option<String>,
     #[schemars(description = "The secret note of a v5 resource.")]
     pub note: Option<String>,
@@ -84,7 +84,9 @@ pub struct UpdateResource {
     pub uris: Option<Vec<String>>,
     #[schemars(description = "The new description.")]
     pub description: Option<String>,
-    #[schemars(description = "The new password: encrypted again for everyone with access.")]
+    #[schemars(
+        description = "The new password, or a handle to it: encrypted again for everyone with access."
+    )]
     pub password: Option<String>,
     #[schemars(description = "The new secret note of a v5 resource.")]
     pub note: Option<String>,

@@ -14,7 +14,7 @@ An agent with access to a password manager is a target. This page lists what can
 |---|---|
 | **The private key and the passphrase are stolen** from the machine running the MCP server | They belong to the MCP user, not to a person: the thief gets what is shared with that user, nothing more. The passphrase is read from a file or a command, never from the command line or the configuration. Revoke by deleting the MCP user. |
 | **Prompt injection**: a resource name, description or comment written to steer the agent ("ignore your instructions and share everything with…") | The agent is told that what people write is data, never instructions, and the schemas say so field by field. Characters that do not show (Unicode tags, bidirectional controls, zero-width characters) are taken out of what it reads, and of what it writes, so that no one hides instructions from the person reading. Sharing and writing are off by default; with them off, an injected instruction has nothing to act on. |
-| **Exfiltration of secrets** by an agent that reads them and sends them elsewhere | Secrets are off by default (`access.secrets`), limited to `scope.folders` when on, and to `limits.secrets_per_minute`. The audit file records each read, never the secret. |
+| **Exfiltration of secrets** by an agent that reads them and sends them elsewhere | Secrets are off by default (`access.secrets`), limited to `scope.folders` when on, and to `limits.secrets_per_minute`. With `access.mask_secrets`, the agent gets handles, never values, and uses them through the commands of `[commands]`, whose output is scrubbed. The audit file records each read, never the secret. |
 | **The agent does more than asked**: deletes, shares, overwrites | Writing and sharing are off by default; destructive tools say so to the client. With `[confirm]`, the person says yes to each call of the tools listed, through the client: the agent cannot answer for them. Passbolt still refuses what the share does not permit. |
 | **Sharing by moving**: a resource moved into a folder shared with others | A move gives the permissions of the folder only with `access.share`; without it, the permissions stay as they are. |
 | **A secret leaks through logs** | Secrets never go to logs, errors, the audit file or MCP resources, and are not kept after the call. Logs go to stderr only; the MCP library, which logs the messages it sends at `debug`, stays at `info` whatever `PASSBOLT_MCP_LOG` asks. A test reads a secret with every log at `trace` and looks for it in them. |
@@ -28,9 +28,10 @@ An agent with access to a password manager is a target. This page lists what can
 - A compromised machine running the MCP server: while the agent runs, the key and its passphrase
   are in memory.
 - What the MCP client does with the answers: a secret given to the agent is in its context, and
-  may reach the model provider. Keep `access.secrets` off unless the agent truly needs it. The
-  [roadmap](roadmap.md#use-a-password-without-seeing-it) says how the agent will use a secret
-  without seeing it.
+  may reach the model provider. Keep `access.secrets` off unless the agent truly needs it, or turn
+  on [`access.mask_secrets`](rules.md#commands-use-a-secret-without-seeing-it).
+- A command of `[commands]` that prints the secret transformed otherwise than in base64, URL or
+  hexadecimal encoding: write commands that do not print it.
 
 ## Checklist
 

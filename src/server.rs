@@ -10,7 +10,9 @@
 // @link          https://www.passbolt.com Passbolt(tm)
 // @since         0.1.0
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use passbolt_sdk::folder::create::create_folder;
 use passbolt_sdk::folder::share::{
@@ -49,6 +51,7 @@ use serde_json::{Map, Value};
 use zeroize::Zeroizing;
 
 use crate::audit::Audit;
+use crate::commands::{self, CommandConfig, CommandOutput, CommandView, EnvValue, RunWithSecret};
 use crate::confirm::{Confirm, Gate};
 use crate::error::ToolError;
 use crate::limits::Limits;
@@ -67,6 +70,7 @@ use crate::secrets::{
 use crate::session::{self, Session};
 use crate::share::{self, ShareFolder, ShareResource, Simulation};
 use crate::untrusted::visible;
+use crate::vault::{Vault, HANDLE};
 use crate::write::{
     AddComment, CreateFolder, CreateResource, DeleteComment, DeleteFolder, DeleteResource,
     MoveFolder, MoveResource, Place, RenameFolder, SetFavorite, UpdateResource, WriteResult,
@@ -84,10 +88,13 @@ pub struct PassboltMcp {
     audit: Arc<Audit>,
     limits: Arc<Limits>,
     confirm: Arc<Confirm>,
+    commands: Arc<BTreeMap<String, CommandConfig>>,
+    vault: Arc<Vault>,
     tool_router: ToolRouter<Self>,
     prompt_router: PromptRouter<Self>,
 }
 
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Serialize, JsonSchema)]
 #[schemars(description = "`whoami`.")]
 pub struct WhoAmI {
@@ -104,6 +111,10 @@ pub struct WhoAmI {
     pub scope_folders: Option<usize>,
     #[schemars(description = "The tools the person confirms before they run (`[confirm]`).")]
     pub confirm: Vec<String>,
+    #[schemars(description = "Secrets come as handles, never as values (`access.mask_secrets`).")]
+    pub mask_secrets: bool,
+    #[schemars(description = "The commands `run_with_secret` runs.")]
+    pub commands: Vec<CommandView>,
 }
 
 const fn moved_permissions(with_permissions: bool) -> &'static str {
@@ -136,9 +147,11 @@ fn needs(tool: &str) -> Option<Access> {
         | "list_comments"
         | "get_permissions"
         | "list_resource_types" => Some(Access::Read),
-        "get_secret" | "get_totp_code" | "check_password_pwned" | "generate_password" => {
-            Some(Access::Secrets)
-        }
+        "get_secret"
+        | "get_totp_code"
+        | "check_password_pwned"
+        | "generate_password"
+        | "run_with_secret" => Some(Access::Secrets),
         "create_resource" | "update_resource" | "delete_resource" | "move_resource"
         | "create_folder" | "rename_folder" | "move_folder" | "delete_folder" | "set_favorite"
         | "add_comment" | "delete_comment" => Some(Access::Write),
@@ -156,8 +169,9 @@ impl PassboltMcp {
         audit: Arc<Audit>,
         limits: Arc<Limits>,
         confirm: Arc<Confirm>,
+        commands: BTreeMap<String, CommandConfig>,
     ) -> Self {
-        let tool_router = Self::router(&rules);
+        let tool_router = Self::router(&rules, !commands.is_empty());
         let prompt_router = Self::prompts(&rules);
         Self {
             session,
@@ -165,6 +179,8 @@ impl PassboltMcp {
             audit,
             limits,
             confirm,
+            commands: Arc::new(commands),
+            vault: Arc::default(),
             tool_router,
             prompt_router,
         }
@@ -179,15 +195,16 @@ impl PassboltMcp {
             .collect()
     }
 
-    fn router(rules: &Rules) -> ToolRouter<Self> {
+    fn router(rules: &Rules, commands: bool) -> ToolRouter<Self> {
         let mut router = Self::tool_router();
         for tool in router.list_all() {
-            let offered = needs(&tool.name).is_some_and(|needs| {
-                rules
-                    .offers(&tool.name, needs)
-                    .inspect_err(|refusal| tracing::debug!("{}: {refusal}", tool.name))
-                    .is_ok()
-            });
+            let offered = (commands || tool.name != "run_with_secret")
+                && needs(&tool.name).is_some_and(|needs| {
+                    rules
+                        .offers(&tool.name, needs)
+                        .inspect_err(|refusal| tracing::debug!("{}: {refusal}", tool.name))
+                        .is_ok()
+                });
             if !offered {
                 router.remove_route(&tool.name);
             }
@@ -576,8 +593,17 @@ impl PassboltMcp {
         &self,
         Parameters(args): Parameters<GeneratePassword>,
     ) -> Result<Json<GeneratedPassword>, ToolError> {
-        Ok(Json(GeneratedPassword {
-            password: secrets::generate(&args)?,
+        let password = secrets::generate(&args)?;
+        Ok(Json(if self.rules.access().mask_secrets {
+            GeneratedPassword {
+                password: None,
+                handle: Some(self.vault.put(password)),
+            }
+        } else {
+            GeneratedPassword {
+                password: Some(password),
+                handle: None,
+            }
         }))
     }
 
@@ -592,10 +618,16 @@ impl PassboltMcp {
         let secret = self.secret_of(&args.id).await?;
         let field = args.field.unwrap_or_else(|| "password".into());
         let value = secrets::field(&secret, &field)?;
+        let (value, handle) = if self.rules.access().mask_secrets {
+            (None, Some(self.vault.put(value)))
+        } else {
+            (Some(value), None)
+        };
         Ok(Json(SecretField {
             id: args.id,
             field,
             value,
+            handle,
         }))
     }
 
@@ -650,6 +682,8 @@ impl PassboltMcp {
     ) -> Result<Json<WriteResult>, ToolError> {
         let place = self.place(args.folder.as_deref()).await?;
         let action = format!("create the resource {} in {}", args.name, place.name);
+        let password = self.vault.reveal(args.password)?;
+        let note = self.vault.reveal(args.note)?;
         if args.dry_run {
             return Ok(Json(WriteResult::new(true, action, None)));
         }
@@ -659,8 +693,8 @@ impl PassboltMcp {
             username: args.username.as_deref().map(visible),
             uris: args.uris.iter().map(|uri| visible(uri)).collect(),
             description: args.description.as_deref().map(visible),
-            note: args.note,
-            password: args.password,
+            note,
+            password,
             folder_parent_id: place.id,
             expired: args.expiry,
             ..NewResource::default()
@@ -714,6 +748,8 @@ impl PassboltMcp {
         }
         let (_, name) = self.resource_with(&args.id, 7).await?;
         let action = format!("change the {} of the resource {name}", changed.join(", "));
+        let password = self.vault.reveal(args.password)?;
+        let note = self.vault.reveal(args.note)?;
         if args.dry_run {
             return Ok(Json(WriteResult::new(true, action, Some(args.id))));
         }
@@ -724,8 +760,8 @@ impl PassboltMcp {
                 .uris
                 .map(|uris| uris.iter().map(|uri| visible(uri)).collect()),
             description: args.description.as_deref().map(visible),
-            note: args.note,
-            password: args.password,
+            note,
+            password,
             expired: if args.clear_expiry {
                 Some(None)
             } else {
@@ -1120,6 +1156,71 @@ impl PassboltMcp {
         )))
     }
 
+    async fn password_of(&self, secret: &str) -> Result<Zeroizing<String>, ToolError> {
+        if secret.starts_with(HANDLE) {
+            return self.vault.get(secret);
+        }
+        let fields = self.secret_of(secret).await?;
+        Ok(Zeroizing::new(secrets::field(&fields, "password")?))
+    }
+
+    #[tool(
+        description = "Run a command of the configuration with a password in its environment, which the agent \
+        never sees: what the command prints comes back with the password taken out. `whoami` lists the \
+        commands.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn run_with_secret(
+        &self,
+        Parameters(args): Parameters<RunWithSecret>,
+    ) -> Result<Json<CommandOutput>, ToolError> {
+        let command = self.commands.get(&args.command).ok_or_else(|| {
+            ToolError::invalid_argument(format!(
+                "no command {}; the commands are: {}",
+                args.command,
+                self.commands
+                    .keys()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))
+        })?;
+        let argv = command.args(&args.args)?;
+        if args.secret.is_some() && !command.takes_secret() {
+            return Err(ToolError::invalid_argument(format!(
+                "the command {} takes no secret",
+                args.command
+            )));
+        }
+        let mut env = Vec::new();
+        let mut plain = Vec::new();
+        for (variable, value) in &command.env {
+            match commands::env_value(value) {
+                EnvValue::Secret => {
+                    let secret = args.secret.as_deref().ok_or_else(|| {
+                        ToolError::invalid_argument(format!(
+                            "the command {} needs a secret: a handle or a resource id",
+                            args.command
+                        ))
+                    })?;
+                    env.push((variable.clone(), self.password_of(secret).await?));
+                }
+                EnvValue::Resource(id) => {
+                    env.push((variable.clone(), self.password_of(id).await?));
+                }
+                EnvValue::Plain(value) => plain.push((variable, value)),
+            }
+        }
+        let timeout = Duration::from_secs(command.timeout_seconds);
+        Ok(Json(
+            commands::run(&args.command, &argv, &env, &plain, timeout).await?,
+        ))
+    }
+
     #[tool(
         description = "The Passbolt user this server acts as, and what its rules allow.",
         annotations(read_only_hint = true)
@@ -1139,6 +1240,12 @@ impl PassboltMcp {
                 .folders()
                 .map(std::collections::HashSet::len),
             confirm: self.confirm.tools().to_vec(),
+            mask_secrets: access.mask_secrets,
+            commands: self
+                .commands
+                .iter()
+                .map(|(name, command)| CommandView::new(name, command))
+                .collect(),
         }))
     }
 }
@@ -1295,7 +1402,7 @@ mod tests {
     use crate::scope::Scope;
 
     fn tools(access: AccessConfig) -> Vec<String> {
-        PassboltMcp::router(&Rules::new(access, Scope::default()))
+        PassboltMcp::router(&Rules::new(access, Scope::default()), false)
             .list_all()
             .into_iter()
             .map(|tool| tool.name.to_string())

@@ -137,6 +137,18 @@ The current TOTP code of a resource; never its seed.
 |---|---|---|
 | `id` (required) | string | The id of the resource. |
 
+### `run_with_secret`
+
+Run a command of the configuration with a password in its environment, which the agent never sees: what the command prints comes back with the password taken out. `whoami` lists the commands.
+
+*Destructive.*
+
+| Argument | Type | Description |
+|---|---|---|
+| `args` | object | The value of each placeholder of the command, by name. |
+| `command` (required) | string | The name of a command of the configuration, as `whoami` lists it. |
+| `secret` | string | A handle from `get_secret` or `generate_password`, or the id of a resource, whose password the command gets; for the commands that take one. |
+
 ## Writing
 
 With `access.write = true`.
@@ -174,7 +186,7 @@ Create a resource, its secret encrypted for the MCP user; in a folder, it gets t
 | `folder` | string | The folder to create it in, by path or id; the root when absent. |
 | `name` (required) | string | The name, as Passbolt shows it. |
 | `note` | string | The secret note of a v5 resource. |
-| `password` | string | From `generate_password`, for instance. |
+| `password` | string | From `generate_password`, for instance; a handle works too. |
 | `resource_type` | string | Its type, by slug (`list_resource_types`); by default, from the fields given. |
 | `uris` | array of string | The URIs; the first is the main one. |
 | `username` | string | The username, or login. |
@@ -267,7 +279,7 @@ Change the fields given of a resource; a new secret is encrypted for everyone wi
 | `id` (required) | string | The id of the resource. |
 | `name` | string | The new name. |
 | `note` | string | The new secret note of a v5 resource. |
-| `password` | string | The new password: encrypted again for everyone with access. |
+| `password` | string | The new password, or a handle to it: encrypted again for everyone with access. |
 | `uris` | array of string | The new URIs, all of them. |
 | `username` | string | The new username. |
 

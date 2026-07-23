@@ -46,6 +46,11 @@ nowhere else: not to the logs, at any level, nor to the errors.
 | `get_totp_code` | `id` | the current TOTP code and how long it stays valid; never the seed, which `get_secret` refuses too |
 | `check_password_pwned` | `id` | whether the password is in a known breach, and how many times: only the first five characters of its SHA-1 go to [Have I Been Pwned](https://haveibeenpwned.com/Passwords) |
 | `generate_password` | `length` (20; 8 to 128), `lowercase`, `uppercase`, `digits`, `symbols` | a random password, with at least one character of each class asked; saved nowhere |
+| `run_with_secret` | `command`, `secret`, `args` | runs a command of [`[commands]`](rules.md#commands-use-a-secret-without-seeing-it) with a password in its environment; what it prints comes back with the password taken out. Offered when there is a command. |
+
+With `access.mask_secrets = true`, `get_secret` and `generate_password` return a handle in place of
+the value, which `create_resource`, `update_resource` and `run_with_secret` take: the agent uses
+the secret without seeing it.
 
 ## Writing
 

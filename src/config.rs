@@ -10,10 +10,13 @@
 // @link          https://www.passbolt.com Passbolt(tm)
 // @since         0.1.0
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
+
+use crate::commands::CommandConfig;
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
@@ -24,6 +27,7 @@ pub struct Config {
     pub audit: AuditConfig,
     pub limits: LimitsConfig,
     pub confirm: ConfirmConfig,
+    pub commands: BTreeMap<String, CommandConfig>,
     #[serde(skip)]
     pub dir: PathBuf,
 }
@@ -48,12 +52,14 @@ pub fn default_path() -> Option<PathBuf> {
         .map(|dirs| dirs.config_dir().join("passbolt-mcp.toml"))
 }
 
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Default, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AccessConfig {
     pub write: bool,
     pub secrets: bool,
     pub share: bool,
+    pub mask_secrets: bool,
     pub allow_tools: Vec<String>,
     pub deny_tools: Vec<String>,
 }
@@ -132,6 +138,8 @@ impl Config {
         let text = std::fs::read_to_string(path)
             .with_context(|| format!("cannot read {}", path.display()))?;
         let config = Self::parse(&text).with_context(|| format!("invalid {}", path.display()))?;
+        crate::commands::check_all(&config.commands)
+            .with_context(|| format!("invalid {}", path.display()))?;
         Ok(config.relative_to(path.parent().unwrap_or_else(|| Path::new(""))))
     }
 
@@ -223,6 +231,19 @@ mod tests {
             config.audit.file.unwrap(),
             Path::new("/etc/passbolt-mcp/audit.jsonl")
         );
+    }
+
+    #[test]
+    fn commands() {
+        let config = Config::parse(
+            "[access]\nmask_secrets = true\n[commands.psql]\nrun = [\"psql\", \"-c\", \"{query}\"]\nenv = { PGPASSWORD = \"{secret}\" }",
+        )
+        .unwrap();
+        assert!(config.access.mask_secrets);
+        let psql = &config.commands["psql"];
+        assert_eq!(psql.run, ["psql", "-c", "{query}"]);
+        assert!(psql.takes_secret());
+        assert_eq!(psql.timeout_seconds, 60);
     }
 
     #[test]

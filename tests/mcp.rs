@@ -863,6 +863,108 @@ async fn totp() {
 
 #[tokio::test]
 #[ignore = "needs a Passbolt server"]
+async fn masked_secrets() {
+    let root = format!("mcp-e2e-masked-{}", std::process::id());
+    let password = format!("Masked-e2e-{}-never-seen", std::process::id());
+    let writer = client_with(&ConfigWith::new("write = true")).await;
+    call(&writer, "create_folder", json!({ "name": root })).await;
+    let id = call(
+        &writer,
+        "create_resource",
+        json!({ "name": format!("{root}-db"), "password": password, "folder": root }),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    writer.cancel().await.unwrap();
+
+    let config = ConfigWith::new(&format!(
+        "write = true\nsecrets = true\nmask_secrets = true\n\
+         [commands.show]\n\
+         description = \"prints the password, as is and in base64\"\n\
+         run = [\"sh\", \"-c\", \"echo \\\"$PW\\\"; printf %s \\\"$PW\\\" | base64; echo {{word}}\"]\n\
+         env = {{ PW = \"{{secret}}\" }}\n\
+         [commands.length]\n\
+         run = [\"sh\", \"-c\", \"printf %s \\\"$PW\\\" | wc -c\"]\n\
+         env = {{ PW = \"passbolt:{id}\" }}\n"
+    ));
+    let client = client_with(&config).await;
+    let me = call(&client, "whoami", json!({})).await;
+    assert_eq!(me["mask_secrets"], true);
+    assert_eq!(me["commands"][0]["name"], "length");
+    assert_eq!(me["commands"][1]["args"], json!(["word"]));
+    assert_eq!(me["commands"][1]["takes_secret"], true);
+
+    let secret = call(&client, "get_secret", json!({ "id": id })).await;
+    assert!(secret["value"].is_null());
+    let handle = secret["handle"].as_str().unwrap().to_string();
+    assert!(handle.starts_with("passbolt:secret/"));
+
+    for given in [handle.as_str(), id.as_str()] {
+        let output = call(
+            &client,
+            "run_with_secret",
+            json!({ "command": "show", "secret": given, "args": { "word": "hello" } }),
+        )
+        .await;
+        assert_eq!(output["stdout"], "[secret]\n[secret]\nhello\n");
+        assert_eq!(output["exit_code"], 0);
+        assert!(!output.to_string().contains(&password));
+    }
+    let length = call(&client, "run_with_secret", json!({ "command": "length" })).await;
+    assert_eq!(
+        length["stdout"].as_str().unwrap().trim(),
+        password.len().to_string()
+    );
+
+    let generated = call(&client, "generate_password", json!({ "length": 31 })).await;
+    assert!(generated["password"].is_null());
+    call(
+        &client,
+        "update_resource",
+        json!({ "id": id, "password": generated["handle"] }),
+    )
+    .await;
+    let length = call(&client, "run_with_secret", json!({ "command": "length" })).await;
+    assert_eq!(length["stdout"].as_str().unwrap().trim(), "31");
+
+    let unknown = refused(
+        &client,
+        "run_with_secret",
+        json!({ "command": "show", "secret": handle, "args": { "word": "x", "shell": "rm" } }),
+    )
+    .await;
+    assert!(unknown["message"].as_str().unwrap().contains("shell"));
+    let no_secret = refused(
+        &client,
+        "run_with_secret",
+        json!({ "command": "length", "secret": handle }),
+    )
+    .await;
+    assert!(no_secret["message"]
+        .as_str()
+        .unwrap()
+        .contains("takes no secret"));
+    let expired = refused(
+        &client,
+        "update_resource",
+        json!({ "id": id, "password": "passbolt:secret/00" }),
+    )
+    .await;
+    assert!(expired["message"].as_str().unwrap().contains("expired"));
+
+    call(
+        &client,
+        "delete_folder",
+        json!({ "folder": root, "with_content": true }),
+    )
+    .await;
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a Passbolt server"]
 async fn folders() {
     let config = ConfigWith::new("write = true");
     let client = client_with(&config).await;

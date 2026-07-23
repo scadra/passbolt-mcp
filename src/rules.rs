@@ -147,6 +147,14 @@ impl Rules {
                 ));
             }
         }
+        if self.access.mask_secrets {
+            warnings.push(
+                "access.mask_secrets is true: run passbolt-mcp as another OS user than the agent, \
+                 or in Docker. An agent with a shell, as the same user, reads the key of the MCP \
+                 user."
+                    .into(),
+            );
+        }
         let rights = self.rights(resources);
         if rights.share > 0 {
             warnings.push(format!(
@@ -349,6 +357,14 @@ mod tests {
         assert!(warnings[0].starts_with("2 resources and 1 folders are shared"));
         assert!(warnings[1].starts_with("The agent can share 1 resources"));
         assert_eq!(Rules::default().warnings(resources, ["ci", "ops"]).len(), 0);
+        let masked = Rules::new(
+            AccessConfig {
+                mask_secrets: true,
+                ..AccessConfig::default()
+            },
+            Scope::default(),
+        );
+        assert!(masked.warnings(resources, ["ci"])[0].contains("another OS user"));
     }
 
     #[test]

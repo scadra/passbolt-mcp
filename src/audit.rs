@@ -30,6 +30,7 @@ const LOGGED: &[&str] = &[
     "groups",
     "permission",
     "field",
+    "command",
     "favorite",
     "with_content",
     "dry_run",
