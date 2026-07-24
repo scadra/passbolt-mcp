@@ -104,17 +104,16 @@ Whether the password of a resource is in a known breach, by k-anonymity: only th
 
 ### `generate_password`
 
-A new random password, saved nowhere.
+A new password, passphrase or PIN code, following the password policy of the organization unless asked otherwise, with its strength; saved nowhere.
 
 *Read only.*
 
 | Argument | Type | Description |
 |---|---|---|
-| `digits` | boolean | Digits; on by default. |
-| `length` | number | 20 by default, from 8 to 128. |
-| `lowercase` | boolean | Lowercase letters; on by default. |
-| `symbols` | boolean | Symbols; on by default. |
-| `uppercase` | boolean | Uppercase letters; on by default. |
+| `kind` | Kind | `password`, `passphrase` or `pin`; the generator of the password policy of the organization by default. |
+| `length` | number | Characters of a password, digits of a PIN code (4 to 12, 6 by default); the policy's by default. |
+| `symbols` | boolean | `false` for letters and digits only, for a service that refuses symbols; the policy's character sets by default. |
+| `words` | number | Words of a passphrase; the policy's by default. |
 
 ### `get_secret`
 

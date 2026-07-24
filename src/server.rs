@@ -586,24 +586,32 @@ impl PassboltMcp {
     }
 
     #[tool(
-        description = "A new random password, saved nowhere.",
+        description = "A new password, passphrase or PIN code, following the password policy of the organization \
+        unless asked otherwise, with its strength; saved nowhere.",
         annotations(read_only_hint = true)
     )]
     async fn generate_password(
         &self,
         Parameters(args): Parameters<GeneratePassword>,
     ) -> Result<Json<GeneratedPassword>, ToolError> {
-        let password = secrets::generate(&args)?;
-        Ok(Json(if self.rules.access().mask_secrets {
-            GeneratedPassword {
-                password: None,
-                handle: Some(self.vault.put(password)),
-            }
+        let policies = self
+            .session
+            .call(|client| async move { client.get_password_policies().await })
+            .await?;
+        let generated = secrets::generate(&args, &policies)?;
+        let secret = generated.secret.as_str().to_owned();
+        let (password, handle) = if self.rules.access().mask_secrets {
+            (None, Some(self.vault.put(secret)))
         } else {
-            GeneratedPassword {
-                password: Some(password),
-                handle: None,
-            }
+            (Some(secret), None)
+        };
+        Ok(Json(GeneratedPassword {
+            password,
+            handle,
+            kind: generated.kind,
+            strength: generated.strength.label().into(),
+            entropy_bits: generated.entropy_bits,
+            below_policy: generated.below_policy,
         }))
     }
 

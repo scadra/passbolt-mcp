@@ -70,8 +70,8 @@ pub fn rotate(args: &RotateArgs) -> String {
     format!(
         "Rotate the password of the Passbolt resource {id}.\n\
          1. Call get_resource with id {id:?}, to know which service and account it is for.\n\
-         2. Call generate_password: 24 characters, unless the description says the service \
-         limits them.\n\
+         2. Call generate_password: the policy of the organization, unless the description says \
+         the service limits the length or refuses symbols.\n\
          3. Call update_resource with the new password and dry_run true; if it would do what you \
          expect, call it again without dry_run.\n\
          4. Call check_password_pwned on the resource.\n\
