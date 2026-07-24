@@ -15,6 +15,13 @@ This project adheres to [Semantic Versioning](http://semver.org/).
 - `run_with_secret` and `[commands]`: `passbolt-mcp` runs a command of the configuration with a
   password in its environment, and gives back its output with the password taken out
 
+### Changed
+- `generate_password` follows the password policy of the organization, as the browser
+  extension does: password or passphrase, length, character sets; PIN codes (`kind`); it says
+  the strength, and whether it is below the policy. `lowercase`, `uppercase` and `digits` are
+  gone: `symbols = false` gives letters and digits
+- `passbolt-sdk` 0.1.6
+
 ### Fixed
 - Builds with Rust 1.99, which refuses a `schemars` attribute before its derive
 - `delete_folder` without `with_content` says what Passbolt does: the content moves to the root,
