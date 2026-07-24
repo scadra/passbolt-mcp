@@ -32,7 +32,7 @@ async fn login() {
 async fn login_again_after_the_session_ends() {
     let session = Session::open(&config()).await.unwrap();
     let before = session.client().await;
-    before.logout().await;
+    before.logout().await.unwrap();
     session.me().await.unwrap();
     assert!(!std::sync::Arc::ptr_eq(&before, &session.client().await));
 }
