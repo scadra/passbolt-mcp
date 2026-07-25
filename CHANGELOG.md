@@ -10,6 +10,9 @@ This project adheres to [Semantic Versioning](http://semver.org/).
   them; the audit file writes `asked` and `declined`
 - Tests against a real Passbolt server for every tool, the rules, `[confirm]` and HTTP
 - The roadmap, in the documentation
+- The documentation follows the layout and style of the MCP documentation: get started, learn, use,
+  security, reference; an architecture overview; security best practices attack by attack; a page
+  on using a secret without seeing it
 - `access.mask_secrets`: `get_secret` and `generate_password` return a handle in place of the
   value, which `create_resource` and `update_resource` take
 - `run_with_secret` and `[commands]`: `passbolt-mcp` runs a command of the configuration with a

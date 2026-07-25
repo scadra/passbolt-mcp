@@ -1,12 +1,14 @@
 ---
 title: Tools
-sidebar_position: 5
 ---
 
 # Tools
 
-What the agent can call: tools, and the [resources](#resources) and [prompts](#prompts) below. A tool is offered only when the [rules](rules.md) allow it, and acts only
-on what is shared with the [MCP user](guides/mcp-user.md) inside `scope.folders`.
+Tools are the functions the model can call through passbolt-mcp. passbolt-mcp also offers MCP
+[resources](#resources) and [prompts](#prompts).
+
+A tool is listed only when the [rules](rules.md) allow it, and acts only on what is shared with
+the [MCP user](guides/mcp-user.md) inside `scope.folders`.
 
 Every argument of every tool, from the schemas the agent gets: the
 [tools reference](tools-reference.md).

@@ -1,12 +1,11 @@
 ---
 title: Troubleshooting
-sidebar_position: 9
 ---
 
 # Troubleshooting
 
-`passbolt-mcp check` runs everything the server does at start, then stops: start there. More
-detail with `PASSBOLT_MCP_LOG=debug`, on stderr.
+Start with `passbolt-mcp check`. It runs everything passbolt-mcp does at start, then stops, and
+says what fails. For more detail, set `PASSBOLT_MCP_LOG=debug`: the logs go to stderr.
 
 ## Configuration
 

@@ -1,13 +1,14 @@
 ---
 title: Rule recipes
-sidebar_position: 4
 ---
 
 # Rule recipes
 
-Ready-made `[access]` and `[scope]` for common agents. Each one gives the least the task needs; the
-[rules](../rules.md) page has every key. Share with the [MCP user](mcp-user.md) as little as the
-recipe uses: the rules never give more than Passbolt does.
+This page gives ready-made rules for common agents. Each recipe gives the least the task needs.
+[Rules](../rules.md) describes every key.
+
+Share with the [MCP user](mcp-user.md) only what the recipe uses: the rules never give more than
+Passbolt does.
 
 ## An assistant that finds things
 
@@ -21,7 +22,45 @@ folders = ["Agents/Support"]
 
 Share `Agents/Support` as **Read**.
 
+## A deploy agent that uses passwords without seeing them
+
+The agent deploys and queries the staging database. It never sees a password: passbolt-mcp runs
+the commands with the password in their environment. See
+[Use a secret without seeing it](../secrets-without-seeing.md).
+
+```toml
+[access]
+secrets = true
+mask_secrets = true
+allow_tools = ["whoami", "list_resources", "get_resource", "run_with_secret"]
+
+[commands.deploy-staging]
+description = "Deploy a version to staging"
+run = ["./deploy.sh", "staging", "{version}"]
+env = { DEPLOY_TOKEN = "passbolt:8f0b2c1e-5d1a-4e8b-9c3f-0a1b2c3d4e5f" }
+timeout_seconds = 600
+
+[commands.psql-staging]
+description = "Run a read-only query on the staging database"
+run = ["psql", "-h", "db.staging", "-U", "readonly", "-c", "{query}"]
+env = { PGPASSWORD = "{secret}" }
+
+[scope]
+folders = ["Agents/CI"]
+
+[audit]
+file = "/var/log/passbolt-mcp/audit.jsonl"
+
+[limits]
+secrets_per_minute = 5
+```
+
+Run passbolt-mcp as another OS user than the agent, or in Docker, so that the agent cannot read the
+key of the MCP user.
+
 ## A deploy agent that reads a few passwords
+
+When the agent must have the password itself, for a tool passbolt-mcp cannot run:
 
 ```toml
 [access]
@@ -76,13 +115,16 @@ Pwned; the agent never sees a password.
 
 ## A rotation agent
 
-It generates a new password, saves it with a dry run first, and checks it against breaches: the
-`rotate_password` prompt.
+It generates a new password that follows the password policy of the organization, saves it with a
+dry run first, and checks it against breaches: the `rotate_password` prompt. With `mask_secrets`,
+the new password goes from `generate_password` to `update_resource` as a handle, and the agent
+never sees it.
 
 ```toml
 [access]
 secrets = true
 write = true
+mask_secrets = true
 deny_tools = ["delete_resource", "delete_folder", "delete_comment", "move_resource", "move_folder"]
 
 [scope]
