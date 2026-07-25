@@ -1,13 +1,15 @@
 ---
 title: Rules
-sidebar_position: 4
 ---
 
 # Rules
 
-The rules are the configuration of `passbolt-mcp`. Passbolt decides what the
-[MCP user](guides/mcp-user.md) can see; the rules decide what the agent can do with it. The agent
-gets what both allow.
+The rules are the configuration of passbolt-mcp. Passbolt decides what the
+[MCP user](guides/mcp-user.md) can see, and the rules decide what the agent can do with it. The
+agent gets only what both allow.
+
+Everything beyond reading metadata is off by default. You turn on what the task needs, section by
+section.
 
 ## The file
 
@@ -189,8 +191,7 @@ arguments.
 
 Masking is worth only as much as the separation between the agent and `passbolt-mcp`: an agent with
 a shell, as the same OS user, can read the private key of the MCP user. Run `passbolt-mcp` as
-another user, or in Docker; `passbolt-mcp check` reminds you. The
-[roadmap](roadmap.md#use-a-password-without-seeing-it) says what comes next.
+another user, or in Docker; `passbolt-mcp check` reminds you. [Use a secret without seeing it](secrets-without-seeing.md) explains it in detail.
 
 ## Effective rights
 

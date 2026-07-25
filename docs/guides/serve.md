@@ -1,19 +1,27 @@
 ---
 title: Connect a client
-sidebar_position: 3
 ---
 
 # Connect a client
 
-Once the [MCP user](mcp-user.md) exists, its key and passphrase are in place, the
-[rules](../rules.md) are written and the server is verified:
+This page explains how to connect passbolt-mcp to the MCP clients you already use: Claude Code,
+Claude Desktop, Cursor, VS Code, Codex, Gemini CLI and Zed, or any other client, directly, with
+Docker or over HTTP.
+
+## Prerequisites
+
+- The [MCP user](mcp-user.md) exists, and its key and passphrase are in place.
+- The [rules](../rules.md) are written.
+- The server key is pinned, and `check` shows what you expect:
 
 ```bash
 passbolt-mcp verify   # once
 passbolt-mcp check    # who the agent will be, and what it can do
 ```
 
-The client starts `passbolt-mcp` and talks to it on stdin and stdout. It logs in as the MCP user
+## How clients start passbolt-mcp
+
+The client starts passbolt-mcp and talks to it on stdin and stdout. It logs in as the MCP user
 at start, and logs out when the client closes stdin or on Ctrl-C / SIGTERM. Without `--config`, it
 reads `passbolt-mcp.toml` in the configuration directory of the system
 (`~/.config/passbolt-mcp/` on Linux); clients do not expand `~`, so write absolute paths.

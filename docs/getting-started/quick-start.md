@@ -1,24 +1,37 @@
 ---
 title: Quick start
-sidebar_position: 2
+description: From nothing to an agent reading one folder of Passbolt, in five steps.
 ---
 
 # Quick start
 
-From nothing to an agent reading one folder of Passbolt, in five steps. You need a Passbolt
-administrator for the first one.
+In this tutorial, you connect Claude Code to Passbolt through passbolt-mcp. At the end, you can ask
+the agent which resources it sees in one folder. The agent reads names, usernames and URIs only,
+never a password.
+
+## Prerequisites
+
+- passbolt-mcp, [installed](installation.md).
+- A Passbolt server, and an administrator account on it for the first step.
+- [Claude Code](https://code.claude.com), or another [MCP client](../guides/serve.md).
 
 ## 1. Create the MCP user
 
-In Passbolt, an administrator invites a user for the agent, `mcp-agent@example.com`, with the role
-**user**. Open the invitation in a browser profile of its own, choose a passphrase, and download
-the recovery kit: the private key of the MCP user (`mcp-agent.asc`). Then share a folder with
-it, `Agents/CI`, as **Read**. Step by step: [the MCP user](../guides/mcp-user.md).
+The agent never uses your account. It works through a Passbolt user created for it, the
+*MCP user*.
+
+1. In Passbolt, an administrator invites a user for the agent, such as `mcp-agent@example.com`,
+   with the role **User**.
+2. Open the invitation in a browser profile of its own, choose a passphrase, and download the
+   recovery kit. The kit is the private key of the MCP user, such as `mcp-agent.asc`.
+3. Share a folder with the MCP user, such as `Agents/CI`, as **Read**.
+
+[The MCP user](../guides/mcp-user.md) explains each step in detail.
 
 ## 2. Write the configuration
 
-`~/.config/passbolt-mcp/passbolt-mcp.toml`, with the key and the passphrase next to it, readable by
-you only:
+Create `~/.config/passbolt-mcp/passbolt-mcp.toml`. Put the key and a file holding the passphrase
+next to it, readable by you only:
 
 ```toml
 [passbolt]
@@ -30,8 +43,8 @@ passphrase_file = "mcp-agent.passphrase"
 folders = ["Agents/CI"]
 ```
 
-Read only: the agent sees names, usernames and URIs, never a password. Every rule:
-[rules](../rules.md).
+Without an `[access]` section, the agent can only read metadata. [Rules](../rules.md) describes
+every key.
 
 ## 3. Pin the server key
 
@@ -39,8 +52,8 @@ Read only: the agent sees names, usernames and URIs, never a password. Every rul
 passbolt-mcp verify
 ```
 
-The server proves it holds its OpenPGP key, and the key is saved next to the configuration
-(`server-key.asc`): each later login checks it again.
+The server proves it holds its OpenPGP key, and passbolt-mcp saves the key next to the
+configuration, in `server-key.asc`. Each later login checks it again.
 
 ## 4. Check what the agent gets
 
@@ -48,8 +61,8 @@ The server proves it holds its OpenPGP key, and the key is saved next to the con
 passbolt-mcp check
 ```
 
-It logs in as the MCP user and prints who it is, what the rules allow, and what it sees, with a
-warning on each risky rule.
+passbolt-mcp logs in as the MCP user and prints who it is, what the rules allow and what it sees,
+with a warning for each risky rule.
 
 ## 5. Connect the agent
 
@@ -57,10 +70,10 @@ warning on each risky rule.
 claude mcp add passbolt -- passbolt-mcp
 ```
 
-Ask Claude "which resources can you see in Passbolt?". Other clients: [clients](../guides/serve.md).
+Ask Claude: "Which resources can you see in Passbolt?"
 
-## Then
+## Next steps
 
-- Let it read passwords: `access.secrets = true`, see [rules](../rules.md).
-- Know what it can call: [tools](../tools.md).
-- Before giving it secrets: [security](../security.md).
+- **Let the agent use passwords** without seeing them: [Use a secret without seeing it](../secrets-without-seeing.md).
+- **Learn what the agent can call**: [Tools](../tools.md) and [Example prompts](../examples.md).
+- **Before giving it secrets**, read the [Security best practices](../security.md).

@@ -1,12 +1,12 @@
 ---
 title: Example prompts
-sidebar_position: 7
 ---
 
 # Example prompts
 
-What to ask the agent, and the [tools](tools.md) it calls. Each prompt works only when the
-[rules](rules.md) offer those tools and the resources are shared with the MCP user.
+This page gives examples of what you can ask the agent, and the [tools](tools.md) it calls to do
+it. Each prompt works only when the [rules](rules.md) offer those tools and the resources are
+shared with the MCP user.
 
 ## Finding things
 
@@ -30,7 +30,20 @@ With `access.secrets = true`.
 | "Connect to the staging database with its password and list the tables." | `list_resources`, `get_secret` |
 | "Give me the current 2FA code of the AWS root account." | `get_totp_code` |
 | "Is any password in `Agents/CI` in a known breach?" | `list_resources`, `check_password_pwned` |
-| "Generate a 32-character password without symbols." | `generate_password` |
+| "Generate a password that follows our policy." | `generate_password` |
+| "Generate a 32-character password without symbols." | `generate_password` (`symbols` false) |
+| "Generate a passphrase of 6 words." | `generate_password` (`kind` passphrase) |
+
+## Secrets without seeing them
+
+With `access.mask_secrets = true` and [commands](secrets-without-seeing.md) declared. The agent
+gets handles, never values.
+
+| Ask | It calls |
+|---|---|
+| "How many orders came in today on staging?" | `whoami`, `run_with_secret` (`psql-staging`) |
+| "Deploy version 2.4.1 to staging." | `run_with_secret` (`deploy-staging`) |
+| "Rotate the password of `Staging DB`." | `generate_password`, `update_resource`, with a handle |
 
 ## Writing
 

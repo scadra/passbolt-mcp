@@ -1,13 +1,14 @@
 ---
 title: The MCP user
-sidebar_position: 2
 ---
 
 # The MCP user
 
-`passbolt-mcp` never logs in as a person. It logs in as a Passbolt user created for the agent: the
-*MCP user*. Passbolt decides what that user can see; the [rules](../rules.md) decide what the agent
-can do with it.
+passbolt-mcp never logs in as a person. It logs in as a Passbolt user created for the agent, called
+the *MCP user*. Passbolt decides what that user can see, and the [rules](../rules.md) decide what
+the agent can do with it.
+
+This page explains how to create the MCP user, activate it, share with it and revoke it.
 
 ## Why a user of its own
 
@@ -81,3 +82,8 @@ nothing.
 
 `passbolt-mcp check` logs in as the MCP user and prints who it is, its role, how many resources and
 folders it can see, and what the rules let the agent do with them.
+
+## Next steps
+
+- [Write the rules](../rules.md), starting from a [recipe](recipes.md).
+- [Connect a client](serve.md).
