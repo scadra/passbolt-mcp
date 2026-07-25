@@ -127,21 +127,18 @@ Claude Desktop, Cursor, VS Code, Codex, Docker, HTTP: see [connect a client](doc
 ## Documentation
 
 The documentation is published at **https://scadra.github.io/passbolt-mcp/**, from
-[`docs/`](docs/README.md):
+[`docs/`](docs/index.mdx):
 
-- [Introduction](docs/README.md)
-- [Installation](docs/getting-started/installation.md) and [quick start](docs/getting-started/quick-start.md)
-- [The MCP user](docs/guides/mcp-user.md): create it, share with it, revoke it
-- [Connect a client](docs/guides/serve.md): Claude Code, Claude Desktop, Cursor, VS Code, Codex, Docker, HTTP
-- [Rules](docs/rules.md): what the agent may do, and [recipes](docs/guides/recipes.md)
-- [Tools](docs/tools.md): what the agent can call, and the [reference](docs/tools-reference.md)
-- [Example prompts](docs/examples.md)
-- [Security](docs/security.md)
-- [Roadmap](docs/roadmap.md): what comes next, and how the agent will use a password without
-  seeing it
-- [Troubleshooting](docs/troubleshooting.md)
-- [Development](docs/contributing/development.md)
-- [Changelog](CHANGELOG.md)
+- **Get started**: [what is passbolt-mcp](docs/index.mdx), [installation](docs/getting-started/installation.md),
+  [quick start](docs/getting-started/quick-start.md)
+- **Learn**: [architecture](docs/architecture.md), [the MCP user](docs/guides/mcp-user.md),
+  [rules](docs/rules.md), [tools](docs/tools.md), [example prompts](docs/examples.md)
+- **Use**: [connect a client](docs/guides/serve.md), [rule recipes](docs/guides/recipes.md),
+  [troubleshooting](docs/troubleshooting.md)
+- **Security**: [security best practices](docs/security.md),
+  [use a secret without seeing it](docs/secrets-without-seeing.md)
+- **Reference**: [tools reference](docs/tools-reference.md), [changelog](CHANGELOG.md)
+- **Project**: [roadmap](docs/roadmap.md), [development](docs/contributing/development.md)
 
 ## Tests
 

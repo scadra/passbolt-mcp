@@ -52,7 +52,8 @@ module.exports = {
         title: "MCP server",
         logo: { alt: "Passbolt", src: "img/logo.svg", width: 120 },
         items: [
-          { to: "/getting-started/installation", label: "Install", position: "left" },
+          { to: "/getting-started/quick-start", label: "Get started", position: "left" },
+          { to: "/architecture", label: "Learn", position: "left" },
           { to: "/rules", label: "Rules", position: "left" },
           { to: "/tools", label: "Tools", position: "left" },
           { to: "/security", label: "Security", position: "left" },
@@ -69,9 +70,11 @@ module.exports = {
             title: "Docs",
             items: [
               { label: "Install", to: "/getting-started/installation" },
+              { label: "Architecture", to: "/architecture" },
               { label: "Rules", to: "/rules" },
               { label: "Tools", to: "/tools" },
               { label: "Security", to: "/security" },
+              { label: "Use a secret without seeing it", to: "/secrets-without-seeing" },
               { label: "Roadmap", to: "/roadmap" },
             ],
           },
