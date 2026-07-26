@@ -1305,6 +1305,236 @@ impl ClientHandler for Person {
     }
 }
 
+/// An API on a loopback port: `echo` says whether the token is right and repeats it.
+async fn api_server(token: String) -> std::net::SocketAddr {
+    use axum::http::{HeaderMap, StatusCode};
+    use axum::routing::get;
+    let echo = move |headers: HeaderMap| {
+        let token = token.clone();
+        async move {
+            let given = headers
+                .get("authorization")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_string();
+            if given == format!("Bearer {token}") {
+                (StatusCode::OK, format!("auth ok, you sent {given}"))
+            } else {
+                (StatusCode::UNAUTHORIZED, "no".to_string())
+            }
+        }
+    };
+    let app = axum::Router::new().route("/v1/echo", get(echo)).route(
+        "/v1/away",
+        get(|| async {
+            (
+                StatusCode::FOUND,
+                [("location", "https://evil.example.com/")],
+            )
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    address
+}
+
+#[tokio::test]
+#[ignore = "needs a Passbolt server"]
+async fn call_api() {
+    let root = format!("mcp-e2e-api-{}", std::process::id());
+    let token = format!("Api-e2e-{}-token", std::process::id());
+    let writer = client_with(&ConfigWith::new("write = true")).await;
+    call(&writer, "create_folder", json!({ "name": root })).await;
+    let id = call(
+        &writer,
+        "create_resource",
+        json!({ "name": format!("{root}-token"), "password": token, "folder": root }),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let address = api_server(token.clone()).await;
+
+    let config = ConfigWith::new(&format!(
+        "secrets = true\nmask_secrets = true\n\
+         [apis.fixed]\nbase_url = \"http://{address}/v1\"\nsecret = \"passbolt:{id}\"\n\
+         headers = {{ Authorization = \"Bearer {{secret}}\" }}\n\
+         [apis.given]\nbase_url = \"http://{address}/v1/\"\n\
+         headers = {{ Authorization = \"Bearer {{secret}}\" }}\n"
+    ));
+    let client = client_with(&config).await;
+    let me = call(&client, "whoami", json!({})).await;
+    assert_eq!(me["apis"][0]["name"], "fixed");
+    assert_eq!(me["apis"][0]["takes_secret"], false);
+    assert_eq!(me["apis"][1]["takes_secret"], true);
+
+    let fixed = call(
+        &client,
+        "call_api",
+        json!({ "api": "fixed", "path": "echo" }),
+    )
+    .await;
+    assert_eq!(fixed["status"], 200);
+    assert_eq!(fixed["body"], "auth ok, you sent Bearer [secret]");
+    let handle = call(&client, "get_secret", json!({ "id": id })).await["handle"].clone();
+    for secret in [handle, json!(id)] {
+        let given = call(
+            &client,
+            "call_api",
+            json!({ "api": "given", "path": "echo", "secret": secret }),
+        )
+        .await;
+        assert_eq!(given["status"], 200);
+        assert!(!given.to_string().contains(&token));
+    }
+    let away = call(
+        &client,
+        "call_api",
+        json!({ "api": "fixed", "path": "away" }),
+    )
+    .await;
+    assert_eq!(away["status"], 302);
+    assert_eq!(away["location"], "https://evil.example.com/");
+
+    for (args, message) in [
+        (
+            json!({ "api": "fixed", "path": "../admin" }),
+            "not a path under",
+        ),
+        (
+            json!({ "api": "fixed", "path": "//evil.example.com/x" }),
+            "not a path under",
+        ),
+        (
+            json!({ "api": "fixed", "path": "echo", "method": "DELETE" }),
+            "not DELETE",
+        ),
+        (
+            json!({ "api": "fixed", "path": "echo", "secret": id }),
+            "takes no secret",
+        ),
+        (json!({ "api": "given", "path": "echo" }), "needs a secret"),
+    ] {
+        let error = refused(&client, "call_api", args).await;
+        assert!(
+            error["message"].as_str().unwrap().contains(message),
+            "{error}"
+        );
+    }
+    client.cancel().await.unwrap();
+
+    call(
+        &writer,
+        "delete_folder",
+        json!({ "folder": root, "with_content": true }),
+    )
+    .await;
+    writer.cancel().await.unwrap();
+}
+
+/// A person who reads what the client shows them.
+#[derive(Clone)]
+struct Viewer {
+    seen: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    protocol: ProtocolVersion,
+}
+
+impl ClientHandler for Viewer {
+    fn create_elicitation(
+        &self,
+        request: ElicitRequestParams,
+        _context: RequestContext<RoleClient>,
+    ) -> impl std::future::Future<Output = Result<ElicitResult, ErrorData>> + Send + '_ {
+        let ElicitRequestParams::FormElicitationParams { message, .. } = request else {
+            panic!("a form");
+        };
+        self.seen.lock().unwrap().push(message);
+        std::future::ready(Ok(ElicitResult::new(ElicitationAction::Accept)))
+    }
+
+    fn get_info(&self) -> ClientConfig {
+        let mut capabilities = ClientCapabilities::default();
+        capabilities.elicitation =
+            Some(ElicitationCapability::new().with_form(FormElicitationCapability::default()));
+        ClientConfig::new(capabilities, Implementation::from_build_env())
+            .with_protocol_version(self.protocol.clone())
+    }
+}
+
+#[tokio::test]
+#[ignore = "needs a Passbolt server"]
+async fn show_secret() {
+    let root = format!("mcp-e2e-show-{}", std::process::id());
+    let password = format!("Shown-e2e-{}-person-only", std::process::id());
+    let writer = client_with(&ConfigWith::new("write = true")).await;
+    call(&writer, "create_folder", json!({ "name": root })).await;
+    let id = call(
+        &writer,
+        "create_resource",
+        json!({ "name": format!("{root}-db"), "password": password, "folder": root }),
+    )
+    .await["id"]
+        .clone();
+
+    let config = ConfigWith::new(
+        "secrets = true\nmask_secrets = true\n[confirm]\ntools = [\"show_secret\"]",
+    );
+    let path = config.0.to_str().unwrap().to_string();
+    for protocol in [ProtocolVersion::V_2025_11_25, ProtocolVersion::V_2026_07_28] {
+        let lifecycle = if protocol.has_initialize() {
+            ClientLifecycleMode::Initialize
+        } else {
+            ClientLifecycleMode::Discover {
+                preferred_versions: vec![protocol.clone()],
+            }
+        };
+        let command =
+            tokio::process::Command::new(env!("CARGO_BIN_EXE_passbolt-mcp")).configure(|command| {
+                command.args(["--config", &path, "serve"]);
+            });
+        let viewer = Viewer {
+            seen: std::sync::Arc::default(),
+            protocol,
+        };
+        let seen = std::sync::Arc::clone(&viewer.seen);
+        let client = viewer
+            .serve_with_lifecycle(TokioChildProcess::new(command).unwrap(), lifecycle)
+            .await
+            .unwrap();
+        let result = client
+            .call_tool(
+                CallToolRequestParams::new("show_secret")
+                    .with_arguments(json!({ "id": id }).as_object().unwrap().clone()),
+            )
+            .await
+            .unwrap();
+        client.cancel().await.unwrap();
+        let content = result.structured_content.unwrap_or_default();
+        assert_eq!(result.is_error, Some(false), "{content}");
+        assert_eq!(content["shown"], true);
+        assert!(!format!("{content:?}{:?}", result.content).contains(&password));
+        let seen = seen.lock().unwrap().clone();
+        assert_eq!(seen.len(), 1, "{seen:?}");
+        assert!(seen[0].contains(&password));
+        assert!(seen[0].contains(&format!("{root}-db")));
+    }
+
+    let blind = client_with(&config).await;
+    let refused = refused(&blind, "show_secret", json!({ "id": id })).await;
+    assert_eq!(refused["code"], "unconfirmed");
+    blind.cancel().await.unwrap();
+
+    call(
+        &writer,
+        "delete_folder",
+        json!({ "folder": root, "with_content": true }),
+    )
+    .await;
+    writer.cancel().await.unwrap();
+}
+
 /// `get_secret` of `id` as a person who says `says`, or cannot be asked.
 async fn ask(
     config: &ConfigWith,
