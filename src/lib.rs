@@ -10,6 +10,7 @@
 // @link          https://www.passbolt.com Passbolt(tm)
 // @since         0.1.0
 
+pub mod apis;
 pub mod audit;
 pub mod commands;
 pub mod config;

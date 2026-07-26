@@ -29,12 +29,20 @@ use crate::error::ToolError;
 use crate::untrusted;
 
 const KEY: &str = "confirm";
+const SHOW: &str = "show";
 const WAIT: Duration = Duration::from_secs(300);
 const HIDDEN: &[&str] = &["password", "note"];
 
 #[derive(Debug)]
 pub enum Gate {
     Go,
+    Ask(InputRequiredResult),
+    Refuse(ToolError),
+}
+
+#[derive(Debug)]
+pub enum Shown {
+    Done,
     Ask(InputRequiredResult),
     Refuse(ToolError),
 }
@@ -90,11 +98,7 @@ impl Confirm {
         if !self.asks(tool) || dry_run(arguments) {
             return Gate::Go;
         }
-        let can_ask = context
-            .client_capabilities()
-            .and_then(|capabilities| capabilities.elicitation)
-            .is_some_and(|elicitation| elicitation.form.is_some() || elicitation.url.is_none());
-        if !can_ask {
+        if !can_ask(context) {
             return match self.config.unsupported {
                 Unsupported::Allow => Gate::Go,
                 Unsupported::Refuse => Gate::Refuse(ToolError::unconfirmed(format!(
@@ -121,6 +125,65 @@ impl Confirm {
                 Gate::Refuse(ToolError::unconfirmed(format!(
                     "{tool} needs the confirmation of the person, which did not come"
                 )))
+            }
+        }
+    }
+
+    /// Whether `request` comes back from the person after `show`: the value was shown.
+    pub fn shown(&self, request: &CallToolRequestParams) -> bool {
+        let call = call(request.name.as_ref(), request.arguments.as_ref());
+        let answered = request
+            .input_responses
+            .as_ref()
+            .is_some_and(|responses| responses.contains_key(SHOW));
+        answered
+            && request
+                .request_state
+                .as_ref()
+                .is_some_and(|state| self.answered(state, &call))
+    }
+
+    /// Shows `message` to the person, through the client, never to the model.
+    pub async fn show(
+        &self,
+        request: &CallToolRequestParams,
+        context: &RequestContext<RoleServer>,
+        message: String,
+    ) -> Shown {
+        if !can_ask(context) {
+            return Shown::Refuse(ToolError::unconfirmed(format!(
+                "{} shows the secret to the person through the client, and this client cannot \
+                 show it",
+                request.name
+            )));
+        }
+        let params = ElicitRequestParams::FormElicitationParams {
+            meta: None,
+            message,
+            requested_schema: ElicitationSchema::new(BTreeMap::new()),
+        };
+        if context
+            .protocol_version()
+            .is_some_and(|version| version >= ProtocolVersion::V_2026_07_28)
+        {
+            let state = self.ask(call(request.name.as_ref(), request.arguments.as_ref()));
+            let requests = BTreeMap::from([(
+                SHOW.to_string(),
+                InputRequest::Elicitation(ElicitRequest::new(params)),
+            )]);
+            return Shown::Ask(InputRequiredResult::new(Some(requests), Some(state)));
+        }
+        match context
+            .peer
+            .create_elicitation_with_timeout(params, Some(WAIT))
+            .await
+        {
+            Ok(_) => Shown::Done,
+            Err(error) => {
+                tracing::warn!("show {}: {error}", request.name);
+                Shown::Refuse(ToolError::unconfirmed(
+                    "the client could not show the secret to the person".into(),
+                ))
             }
         }
     }
@@ -188,6 +251,13 @@ impl Confirm {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
+}
+
+fn can_ask(context: &RequestContext<RoleServer>) -> bool {
+    context
+        .client_capabilities()
+        .and_then(|capabilities| capabilities.elicitation)
+        .is_some_and(|elicitation| elicitation.form.is_some() || elicitation.url.is_none())
 }
 
 fn dry_run(arguments: Option<&JsonObject>) -> bool {

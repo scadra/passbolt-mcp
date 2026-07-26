@@ -50,9 +50,10 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 use zeroize::Zeroizing;
 
+use crate::apis::{self, ApiConfig, ApiResponse, ApiView, CallApi};
 use crate::audit::Audit;
 use crate::commands::{self, CommandConfig, CommandOutput, CommandView, EnvValue, RunWithSecret};
-use crate::confirm::{Confirm, Gate};
+use crate::confirm::{Confirm, Gate, Shown};
 use crate::error::ToolError;
 use crate::limits::Limits;
 use crate::page::Page;
@@ -65,7 +66,7 @@ use crate::read::{
 use crate::rules::{Access, Rules};
 use crate::scope::{find_folder, folder_paths};
 use crate::secrets::{
-    self, GeneratePassword, GeneratedPassword, GetSecret, Pwned, SecretField, TotpCode,
+    self, GeneratePassword, GeneratedPassword, GetSecret, Pwned, SecretField, ShownSecret, TotpCode,
 };
 use crate::session::{self, Session};
 use crate::share::{self, ShareFolder, ShareResource, Simulation};
@@ -89,6 +90,7 @@ pub struct PassboltMcp {
     limits: Arc<Limits>,
     confirm: Arc<Confirm>,
     commands: Arc<BTreeMap<String, CommandConfig>>,
+    apis: Arc<BTreeMap<String, ApiConfig>>,
     vault: Arc<Vault>,
     tool_router: ToolRouter<Self>,
     prompt_router: PromptRouter<Self>,
@@ -115,6 +117,8 @@ pub struct WhoAmI {
     pub mask_secrets: bool,
     #[schemars(description = "The commands `run_with_secret` runs.")]
     pub commands: Vec<CommandView>,
+    #[schemars(description = "The APIs `call_api` calls.")]
+    pub apis: Vec<ApiView>,
 }
 
 const fn moved_permissions(with_permissions: bool) -> &'static str {
@@ -151,7 +155,9 @@ fn needs(tool: &str) -> Option<Access> {
         | "get_totp_code"
         | "check_password_pwned"
         | "generate_password"
-        | "run_with_secret" => Some(Access::Secrets),
+        | "run_with_secret"
+        | "show_secret"
+        | "call_api" => Some(Access::Secrets),
         "create_resource" | "update_resource" | "delete_resource" | "move_resource"
         | "create_folder" | "rename_folder" | "move_folder" | "delete_folder" | "set_favorite"
         | "add_comment" | "delete_comment" => Some(Access::Write),
@@ -170,8 +176,9 @@ impl PassboltMcp {
         limits: Arc<Limits>,
         confirm: Arc<Confirm>,
         commands: BTreeMap<String, CommandConfig>,
+        apis: BTreeMap<String, ApiConfig>,
     ) -> Self {
-        let tool_router = Self::router(&rules, !commands.is_empty());
+        let tool_router = Self::router(&rules, !commands.is_empty(), !apis.is_empty());
         let prompt_router = Self::prompts(&rules);
         Self {
             session,
@@ -180,6 +187,7 @@ impl PassboltMcp {
             limits,
             confirm,
             commands: Arc::new(commands),
+            apis: Arc::new(apis),
             vault: Arc::default(),
             tool_router,
             prompt_router,
@@ -195,10 +203,11 @@ impl PassboltMcp {
             .collect()
     }
 
-    fn router(rules: &Rules, commands: bool) -> ToolRouter<Self> {
+    fn router(rules: &Rules, commands: bool, apis: bool) -> ToolRouter<Self> {
         let mut router = Self::tool_router();
         for tool in router.list_all() {
             let offered = (commands || tool.name != "run_with_secret")
+                && (apis || tool.name != "call_api")
                 && needs(&tool.name).is_some_and(|needs| {
                     rules
                         .offers(&tool.name, needs)
@@ -637,6 +646,64 @@ impl PassboltMcp {
             value,
             handle,
         }))
+    }
+
+    #[tool(
+        description = "Show one field of the secret of a resource to the person, in the client: the agent never \
+        sees it. For when the person needs the password itself.",
+        annotations(read_only_hint = true)
+    )]
+    async fn show_secret(
+        &self,
+        Parameters(_args): Parameters<GetSecret>,
+    ) -> Result<Json<ShownSecret>, ToolError> {
+        Err(ToolError::invalid_argument(
+            "show_secret runs through the client".into(),
+        ))
+    }
+
+    async fn show(
+        &self,
+        request: &CallToolRequestParams,
+        context: &RequestContext<RoleServer>,
+    ) -> Result<CallToolResponse, ErrorData> {
+        let args: GetSecret = match serde_json::from_value(Value::Object(
+            request.arguments.clone().unwrap_or_default(),
+        )) {
+            Ok(args) => args,
+            Err(error) => {
+                return ToolError::invalid_argument(error.to_string()).into_call_tool_result()
+            }
+        };
+        let field = args.field.clone().unwrap_or_else(|| "password".into());
+        let shown = |shown| {
+            Ok::<_, ToolError>(Json(ShownSecret {
+                id: args.id.clone(),
+                field: field.clone(),
+                shown,
+            }))
+        };
+        if self.confirm.shown(request) {
+            return shown(true).into_call_tool_result();
+        }
+        let message = async {
+            let (_, name) = self.resource_with(&args.id, 1).await?;
+            let secret = self.secret_of(&args.id).await?;
+            let value = Zeroizing::new(secrets::field(&secret, &field)?);
+            Ok::<_, ToolError>(format!(
+                "Passbolt: the {field} of {name} is\n\n{}\n\nThe agent does not see it.",
+                value.as_str()
+            ))
+        };
+        let message = match message.await {
+            Ok(message) => message,
+            Err(error) => return error.into_call_tool_result(),
+        };
+        match self.confirm.show(request, context, message).await {
+            Shown::Done => shown(true).into_call_tool_result(),
+            Shown::Ask(question) => Ok(question.into()),
+            Shown::Refuse(error) => error.into_call_tool_result(),
+        }
     }
 
     #[tool(
@@ -1230,6 +1297,61 @@ impl PassboltMcp {
     }
 
     #[tool(
+        description = "Call an API of the configuration, passbolt-mcp adding the secret to the request: the agent \
+        never sees it, and the answer comes back with the secret taken out. `whoami` lists the APIs.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn call_api(
+        &self,
+        Parameters(args): Parameters<CallApi>,
+    ) -> Result<Json<ApiResponse>, ToolError> {
+        let api = self.apis.get(&args.api).ok_or_else(|| {
+            ToolError::invalid_argument(format!(
+                "no API {}; the APIs are: {}",
+                args.api,
+                self.apis
+                    .keys()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))
+        })?;
+        let method = args.method.as_deref().unwrap_or("GET").to_uppercase();
+        if !api.methods.contains(&method) {
+            return Err(ToolError::invalid_argument(format!(
+                "the API {} allows {}, not {method}",
+                args.api,
+                api.methods.join(", ")
+            )));
+        }
+        let url = api.url(&args.path, &args.query)?;
+        let secret = match (&api.secret, &args.secret) {
+            (Some(_), Some(_)) => {
+                return Err(ToolError::invalid_argument(format!(
+                    "the API {} takes no secret: its own is in the configuration",
+                    args.api
+                )))
+            }
+            (Some(fixed), None) => fixed.strip_prefix(commands::RESOURCE).unwrap_or(fixed),
+            (None, Some(given)) => given.as_str(),
+            (None, None) => {
+                return Err(ToolError::invalid_argument(format!(
+                    "the API {} needs a secret: a handle or a resource id",
+                    args.api
+                )))
+            }
+        };
+        let secret = self.password_of(secret).await?;
+        Ok(Json(
+            apis::send(api, &method, url, args.body.as_ref(), &secret).await?,
+        ))
+    }
+
+    #[tool(
         description = "The Passbolt user this server acts as, and what its rules allow.",
         annotations(read_only_hint = true)
     )]
@@ -1253,6 +1375,11 @@ impl PassboltMcp {
                 .commands
                 .iter()
                 .map(|(name, command)| CommandView::new(name, command))
+                .collect(),
+            apis: self
+                .apis
+                .iter()
+                .map(|(name, api)| ApiView::new(name, api))
                 .collect(),
         }))
     }
@@ -1387,6 +1514,9 @@ impl ServerHandler for PassboltMcp {
         let tool = request.name.to_string();
         let arguments = request.arguments.clone();
         let response = match self.limits.take(needs(&tool)) {
+            Ok(()) if tool == "show_secret" && self.tool_router.has_route(&tool) => {
+                self.show(&request, &context).await
+            }
             Ok(()) => match self.confirm.gate(&request, &context).await {
                 Gate::Go => {
                     self.tool_router
@@ -1410,7 +1540,7 @@ mod tests {
     use crate::scope::Scope;
 
     fn tools(access: AccessConfig) -> Vec<String> {
-        PassboltMcp::router(&Rules::new(access, Scope::default()), false)
+        PassboltMcp::router(&Rules::new(access, Scope::default()), false, false)
             .list_all()
             .into_iter()
             .map(|tool| tool.name.to_string())

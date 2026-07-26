@@ -201,6 +201,7 @@ async fn serve(config: &Config, http: Option<SocketAddr>) -> anyhow::Result<()> 
         Arc::new(Limits::new(&config.limits)),
         Arc::new(Confirm::new(config.confirm.clone())),
         config.commands.clone(),
+        config.apis.clone(),
     );
     let running = async {
         match http {
