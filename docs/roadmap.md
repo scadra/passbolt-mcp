@@ -45,7 +45,7 @@ The unit tests and a fake Passbolt cover the rest offline, on each pull request.
 | **2** | Distribution | crates.io, a Claude Desktop bundle (`.mcpb`), install buttons for Cursor and VS Code, a static Linux binary, Homebrew. |
 | **3** | HTTP with a token | Streamable HTTP beyond loopback, behind `Authorization: Bearer`, for a server shared by agents; Docker with a token. |
 | **4** | Profiles | One `passbolt-mcp` serving several agents, each with its MCP user and its rules (`--profile`). |
-| **5** | Real clients, tested automatically | Today, the tests drive passbolt-mcp with the MCP client of the Rust SDK. Next, real clients in CI: Claude Code in headless mode (`claude -p` with `--mcp-config`) and the Codex CLI on a test server, the MCP Inspector CLI for the protocol, and the configuration files of each client checked against their schemas. Only what a desktop application shows, such as the question of `[confirm]` in Claude Desktop, stays a manual check before each release. |
+| **5** | Clients checked before each release | Claude Code, Claude Desktop, Cursor and VS Code, by hand: the configurations of [Connect a client](guides/serve.md), and the question of `[confirm]` as each client shows it. The protocol itself is already tested on every change, through the MCP client of the Rust SDK. |
 
 Later, in the SDK first: `passbolt-mcp init <invitation link>`, which generates the key of the
 MCP user and activates it without a browser.
