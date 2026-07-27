@@ -233,7 +233,7 @@ filled, nothing is written. The agent gets the target and the number of secrets,
 content.
 
 Both paths are absolute and set by the operator: the agent picks a template by name, and cannot
-choose where the file goes. The `target` **SHOULD** be in a directory the agent cannot read;
+choose where the file goes. The `target` **MUST** be in a directory the agent cannot read;
 otherwise, the agent can read the secrets back.
 
 ## Show a secret to the person only
@@ -257,7 +257,7 @@ Masking holds only as long as the agent cannot reach what passbolt-mcp holds. An
 shell, running as the same operating-system user as passbolt-mcp, can read the private key of the
 MCP user and its passphrase, and decrypt everything itself.
 
-With `mask_secrets`, you **SHOULD** run passbolt-mcp where the agent cannot read its files:
+With `mask_secrets`, you **MUST** run passbolt-mcp where the agent cannot read its files:
 
 - as another operating-system user, the key and the passphrase readable by that user only; or
 - in its [Docker image](guides/serve.md#with-docker), the configuration directory mounted for the
