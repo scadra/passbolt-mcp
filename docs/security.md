@@ -76,9 +76,11 @@ steers the agent.
 #### Mitigation
 
 passbolt-mcp offers [handles](secrets-without-seeing.md): with `access.mask_secrets = true`,
-`get_secret` and `generate_password` return an opaque handle instead of the value. The agent
-passes the handle to `create_resource`, `update_resource` or `run_with_secret`, and passbolt-mcp
-puts the secret where it is needed. The value never reaches the model.
+`get_secret` and `generate_password` return an opaque handle instead of the value. passbolt-mcp
+then puts the secret where it is needed: in Passbolt (`create_resource`, `update_resource`), in
+the environment of a declared command (`run_with_secret`), in a header of a request to a declared
+API (`call_api`), in a declared file (`fill_template`), or in front of the person
+(`show_secret`). The value never reaches the model.
 
 Operators:
 
@@ -150,6 +152,72 @@ Operators:
 
 - **SHOULD** declare commands that do not print their secrets. A secret printed in another form,
   such as reversed or one character per line, is not recognized.
+
+### Secret leakage through an API call
+
+`call_api` adds a secret to the headers of a request. If the agent could choose where the request
+goes, it could send the secret to a server of its choosing.
+
+#### Attack description
+
+1. Injected content asks the agent to call the declared API with the path
+   `//attacker.example/collect`, or `../../admin`.
+2. Or the API answers with a redirect to `https://attacker.example/`, and the client follows it,
+   with the header.
+
+#### Risks
+
+- **Exfiltration** of the token to another host.
+- **Requests the operator did not mean**, to other paths of the same host.
+
+#### Mitigation
+
+passbolt-mcp:
+
+- sends requests only under the `base_url` of an API declared in `[apis]`: an absolute path, `..`,
+  another host or scheme is refused;
+- never follows a redirect, and returns its `location` instead;
+- sends only the headers of the configuration, and only the methods of `methods`, `GET` by
+  default;
+- accepts `https://` only, or `http://` on a loopback address, and no credentials in `base_url`;
+- replaces the secret with `[secret]` in what comes back.
+
+Operators:
+
+- **SHOULD** declare the narrowest `base_url` and the fewest `methods` the task needs.
+- **SHOULD** list `call_api` in `[confirm]` when its methods change things.
+
+### Secrets written where the agent can read them
+
+`fill_template` writes secrets to a file. If the agent can read that file, it can read the
+secrets.
+
+#### Mitigation
+
+passbolt-mcp writes only to the `target` of a template declared by the operator, as an absolute
+path: the agent cannot choose it. It creates the file readable by its owner only, replaces it at
+once, and writes nothing if one placeholder cannot be filled. It never returns the content.
+
+Operators:
+
+- **MUST** put the `target` of each template where the agent cannot read: run passbolt-mcp as
+  another operating-system user, and give the target to that user.
+
+### Showing a secret to the person
+
+`show_secret` sends the value to the client, to show it to the person. The model never gets it,
+but the client does.
+
+#### Mitigation
+
+passbolt-mcp shows the value through MCP elicitation, the channel `[confirm]` uses, which the
+model does not see, and returns only `shown: true` to the agent. A client that cannot show it is
+refused.
+
+Operators:
+
+- **SHOULD** use clients that do not keep elicitation messages in a history the model reads, and
+  deny `show_secret` otherwise.
 
 ### Handle hijacking
 
@@ -419,8 +487,11 @@ Before giving an agent secrets:
 - [ ] `access.mask_secrets` is on, the agent uses declared commands, and passbolt-mcp runs as
       another OS user or in Docker.
 - [ ] No declared command runs a shell on a placeholder.
+- [ ] The APIs of `[apis]` have the narrowest `base_url` and `methods`, and the targets of
+      `[templates]` are out of reach of the agent.
 - [ ] `limits.secrets_per_minute` is as low as the task allows.
-- [ ] `[confirm]` lists `get_secret`, `run_with_secret`, the deletes and the shares at least.
+- [ ] `[confirm]` lists `get_secret`, `run_with_secret`, `call_api`, `fill_template`, the deletes
+      and the shares at least.
 - [ ] `[audit]` writes to a file someone reads.
 - [ ] `passbolt-mcp check` shows no warning you have not accepted.
 - [ ] You know how to cut the agent off: suspend the MCP user in Passbolt.

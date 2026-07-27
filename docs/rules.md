@@ -193,6 +193,21 @@ Masking is worth only as much as the separation between the agent and `passbolt-
 a shell, as the same OS user, can read the private key of the MCP user. Run `passbolt-mcp` as
 another user, or in Docker; `passbolt-mcp check` reminds you. [Use a secret without seeing it](secrets-without-seeing.md) explains it in detail.
 
+`[apis]` and `[templates]` work the same way, for HTTP APIs and configuration files, and are
+described on the same page:
+
+```toml
+[apis.github]
+base_url = "https://api.github.com"
+secret = "passbolt:8f0b2c1e-…"
+headers = { Authorization = "Bearer {secret}" }
+methods = ["GET"]
+
+[templates.app-env]
+source = "/srv/agent/app.env.template"
+target = "/srv/app/.env"
+```
+
 ## Effective rights
 
 | Shared with the MCP user | Rules | The agent can |

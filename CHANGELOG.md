@@ -17,6 +17,11 @@ This project adheres to [Semantic Versioning](http://semver.org/).
   value, which `create_resource` and `update_resource` take
 - `run_with_secret` and `[commands]`: `passbolt-mcp` runs a command of the configuration with a
   password in its environment, and gives back its output with the password taken out
+- `call_api` and `[apis]`: a request to an API of the configuration, the secret in a header, the
+  path kept under its base URL, redirects not followed, the answer scrubbed
+- `fill_template` and `[templates]`: a file of the configuration written from a template the
+  agent wrote, its `{{ passbolt:… }}` replaced with secrets, readable by its owner only
+- `show_secret`: shows a secret to the person, in the client, never to the agent
 
 ### Changed
 - `generate_password` follows the password policy of the organization, as the browser

@@ -72,12 +72,13 @@ agent cannot answer for them. Every call is written to an audit file, never a se
 - With the rules allowing it:
   - **secrets**: read a password or a note, get a TOTP code (never its seed), check a password
     against Have I Been Pwned, generate one following the password policy of the organization; or, with `mask_secrets`, **use** a password without
-    seeing it: it gets a handle, and `passbolt-mcp` runs a declared command with the password;
+    seeing it: it gets a handle, and `passbolt-mcp` puts the password in a declared command, API
+    call or file, or shows it to the person only;
   - **writing**: create, update, move and delete resources and folders, comment, mark favorites,
     each with a `dry_run`;
   - **sharing**: find users and groups, simulate a share, share and revoke.
 
-28 tools in all, plus MCP resources and prompts: see the [tools](docs/tools.md).
+31 tools in all, plus MCP resources and prompts: see the [tools](docs/tools.md).
 
 ### What it cannot do
 
