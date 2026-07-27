@@ -116,6 +116,16 @@ Whether the password of a resource is in a known breach, by k-anonymity: only th
 |---|---|---|
 | `id` (required) | string | The id of the resource. |
 
+### `fill_template`
+
+Fill a template of the configuration: passbolt-mcp reads the file the agent wrote, puts each secret where `{{ passbolt:<resource id> }}`, `{{ passbolt:<resource id>#<field> }}` or a handle stands, and writes the target, which the agent cannot read. `whoami` lists the templates.
+
+*Destructive.*
+
+| Argument | Type | Description |
+|---|---|---|
+| `template` (required) | string | The name of a template of the configuration, as `whoami` lists it. |
+
 ### `generate_password`
 
 A new password, passphrase or PIN code, following the password policy of the organization unless asked otherwise, with its strength; saved nowhere.

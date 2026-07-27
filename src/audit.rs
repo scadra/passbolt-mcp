@@ -34,6 +34,7 @@ const LOGGED: &[&str] = &[
     "api",
     "method",
     "path",
+    "template",
     "favorite",
     "with_content",
     "dry_run",

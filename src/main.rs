@@ -20,7 +20,7 @@ use passbolt_mcp::config::{Config, Unsupported};
 use passbolt_mcp::confirm::Confirm;
 use passbolt_mcp::limits::Limits;
 use passbolt_mcp::rules::Rules;
-use passbolt_mcp::server::PassboltMcp;
+use passbolt_mcp::server::{PassboltMcp, Uses};
 use passbolt_mcp::server_key::{self, Pinned};
 use passbolt_mcp::session::{self, Session};
 use passbolt_sdk::{FolderQuery, ResourceQuery};
@@ -200,8 +200,11 @@ async fn serve(config: &Config, http: Option<SocketAddr>) -> anyhow::Result<()> 
         Arc::new(audit),
         Arc::new(Limits::new(&config.limits)),
         Arc::new(Confirm::new(config.confirm.clone())),
-        config.commands.clone(),
-        config.apis.clone(),
+        Uses {
+            commands: config.commands.clone(),
+            apis: config.apis.clone(),
+            templates: config.templates.clone(),
+        },
     );
     let running = async {
         match http {
