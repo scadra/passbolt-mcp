@@ -1434,6 +1434,94 @@ async fn call_api() {
     writer.cancel().await.unwrap();
 }
 
+#[tokio::test]
+#[ignore = "needs a Passbolt server"]
+async fn fill_template() {
+    let root = format!("mcp-e2e-template-{}", std::process::id());
+    let password = format!("Tpl-e2e-{}-pw", std::process::id());
+    let writer = client_with(&ConfigWith::new("write = true")).await;
+    call(&writer, "create_folder", json!({ "name": root })).await;
+    let id = call(
+        &writer,
+        "create_resource",
+        json!({ "name": format!("{root}-db"), "password": password,
+                "note": "the note", "folder": root }),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("env.tpl");
+    let target = dir.path().join(".env");
+    let config = ConfigWith::new(&format!(
+        "secrets = true\nmask_secrets = true\n\
+         [templates.env]\nsource = \"{}\"\ntarget = \"{}\"\n",
+        source.display(),
+        target.display()
+    ));
+    let client = client_with(&config).await;
+    assert_eq!(
+        call(&client, "whoami", json!({})).await["templates"][0]["name"],
+        "env"
+    );
+    let handle = call(
+        &client,
+        "generate_password",
+        json!({ "kind": "pin", "length": 8 }),
+    )
+    .await["handle"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    std::fs::write(
+        &source,
+        format!(
+            "DB_PASSWORD={{{{ passbolt:{id} }}}}\nNOTE={{{{passbolt:{id}#description}}}}\n\
+             PIN={{{{ {handle} }}}}\nKEEP={{{{ not_ours }}}}\n"
+        ),
+    )
+    .unwrap();
+    let filled = call(&client, "fill_template", json!({ "template": "env" })).await;
+    assert_eq!(filled["secrets"], 3);
+    assert!(!filled.to_string().contains(&password));
+    let written = std::fs::read_to_string(&target).unwrap();
+    let pin = written
+        .lines()
+        .find_map(|line| line.strip_prefix("PIN="))
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        written,
+        format!("DB_PASSWORD={password}\nNOTE=the note\nPIN={pin}\nKEEP={{{{ not_ours }}}}\n")
+    );
+    assert!(pin.len() == 8 && pin.bytes().all(|byte| byte.is_ascii_digit()));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&target).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+
+    std::fs::write(
+        &source,
+        "X={{ passbolt:00000000-0000-0000-0000-000000000000 }}",
+    )
+    .unwrap();
+    refused(&client, "fill_template", json!({ "template": "env" })).await;
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), written);
+    client.cancel().await.unwrap();
+
+    call(
+        &writer,
+        "delete_folder",
+        json!({ "folder": root, "with_content": true }),
+    )
+    .await;
+    writer.cancel().await.unwrap();
+}
+
 /// A person who reads what the client shows them.
 #[derive(Clone)]
 struct Viewer {
