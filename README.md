@@ -71,7 +71,7 @@ agent cannot answer for them. Every call is written to an audit file, never a se
   permissions.
 - With the rules allowing it:
   - **secrets**: read a password or a note, get a TOTP code (never its seed), check a password
-    against Have I Been Pwned, generate one following the password policy of the organization; or, with `mask_secrets`, **use** a password without
+    against Have I Been Pwned, generate one following the password policy of the organization. By default, the agent **uses** a password without
     seeing it: it gets a handle, and `passbolt-mcp` puts the password in a declared command, API
     call or file, or shows it to the person only;
   - **writing**: create, update, move and delete resources and folders, comment, mark favorites,
@@ -102,8 +102,9 @@ folders = ["Agents/CI"]
 ```
 
 Asked "deploy with the staging database password", the agent finds `Staging DB` in `Agents/CI`
-and reads its password. Asked to read the production password, kept elsewhere, it finds nothing;
-asked to change `Staging DB`, it has no tool to do so.
+and gets a handle to its password, which a [declared command](docs/secrets-without-seeing.md)
+uses to deploy: the agent never sees the password. Asked to read the production password, kept
+elsewhere, it finds nothing; asked to change `Staging DB`, it has no tool to do so.
 
 ## Install
 

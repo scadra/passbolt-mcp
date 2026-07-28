@@ -31,7 +31,6 @@ the commands with the password in their environment. See
 ```toml
 [access]
 secrets = true
-mask_secrets = true
 allow_tools = ["whoami", "list_resources", "get_resource", "run_with_secret"]
 
 [commands.deploy-staging]
@@ -60,11 +59,13 @@ key of the MCP user.
 
 ## A deploy agent that reads a few passwords
 
-When the agent must have the password itself, for a tool passbolt-mcp cannot run:
+When the agent must have the password itself, for a tool passbolt-mcp cannot run. This is the one
+case for `reveal_secrets`:
 
 ```toml
 [access]
 secrets = true
+reveal_secrets = true
 deny_tools = ["check_password_pwned", "generate_password"]
 
 [scope]
@@ -85,11 +86,13 @@ agent emptying the folder would like; the audit file says which ones it read.
 
 ## TOTP codes only
 
-The agent logs in to a service for you, with a code, never the seed nor the password:
+The agent logs in to a service for you, with a code, never the seed nor the password. It types the
+code itself, so it sees it:
 
 ```toml
 [access]
 secrets = true
+reveal_secrets = true
 allow_tools = ["whoami", "list_resources", "get_resource", "get_totp_code"]
 
 [scope]
@@ -116,15 +119,13 @@ Pwned; the agent never sees a password.
 ## A rotation agent
 
 It generates a new password that follows the password policy of the organization, saves it with a
-dry run first, and checks it against breaches: the `rotate_password` prompt. With `mask_secrets`,
-the new password goes from `generate_password` to `update_resource` as a handle, and the agent
+dry run first, and checks it against breaches: the `rotate_password` prompt. The new password goes from `generate_password` to `update_resource` as a handle, and the agent
 never sees it.
 
 ```toml
 [access]
 secrets = true
 write = true
-mask_secrets = true
 deny_tools = ["delete_resource", "delete_folder", "delete_comment", "move_resource", "move_folder"]
 
 [scope]

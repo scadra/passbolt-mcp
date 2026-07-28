@@ -13,8 +13,9 @@ This project adheres to [Semantic Versioning](http://semver.org/).
 - The documentation follows the layout and style of the MCP documentation: get started, learn, use,
   security, reference; an architecture overview; security best practices attack by attack; a page
   on using a secret without seeing it
-- `access.mask_secrets`: `get_secret` and `generate_password` return a handle in place of the
-  value, which `create_resource` and `update_resource` take
+- By default, the agent never sees a secret: `get_secret`, `generate_password` and
+  `get_totp_code` return a handle in place of the value, which `create_resource`,
+  `update_resource` and the tools below take. `access.reveal_secrets` returns values
 - `run_with_secret` and `[commands]`: `passbolt-mcp` runs a command of the configuration with a
   password in its environment, and gives back its output with the password taken out
 - `call_api` and `[apis]`: a request to an API of the configuration, the secret in a header, the

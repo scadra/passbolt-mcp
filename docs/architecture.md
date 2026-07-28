@@ -112,7 +112,7 @@ sequenceDiagram
     M->>P: the resource and its secret
     P-->>M: OpenPGP messages
     Note over M: Is the resource in scope.folders?<br/>Decrypt with the key of the MCP user
-    M-->>C: the value, or a handle with mask_secrets
+    M-->>C: a handle, never the value
     Note over M: Audit: one line, never the secret
     C-->>Mo: the result
 ```
@@ -127,7 +127,8 @@ sequenceDiagram
    otherwise, even when Passbolt shares it.
 5. **Decryption.** passbolt-mcp decrypts the metadata and the secret on its side, with the key of
    the MCP user. Nothing is decrypted on the server.
-6. **The answer.** With `access.mask_secrets`, the agent gets a handle instead of the value: see
+6. **The answer.** The agent gets a handle instead of the value, unless the operator sets
+   `access.reveal_secrets`: see
    [Use a secret without seeing it](secrets-without-seeing.md).
 7. **The audit.** One JSON line records the tool, the ids it named and the outcome, never a secret.
 
