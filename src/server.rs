@@ -123,7 +123,9 @@ pub struct WhoAmI {
     pub scope_folders: Option<usize>,
     #[schemars(description = "The tools the person confirms before they run (`[confirm]`).")]
     pub confirm: Vec<String>,
-    #[schemars(description = "Secrets come as handles, never as values (`access.mask_secrets`).")]
+    #[schemars(
+        description = "Secrets come as handles, never as values, unless `access.reveal_secrets` is set."
+    )]
     pub mask_secrets: bool,
     #[schemars(description = "The commands `run_with_secret` runs.")]
     pub commands: Vec<CommandView>,
@@ -635,7 +637,7 @@ impl PassboltMcp {
             .await?;
         let generated = secrets::generate(&args, &policies)?;
         let secret = generated.secret.as_str().to_owned();
-        let (password, handle) = if self.rules.access().mask_secrets {
+        let (password, handle) = if self.rules.access().masked() {
             (None, Some(self.vault.put(secret)))
         } else {
             (Some(secret), None)
@@ -661,7 +663,7 @@ impl PassboltMcp {
         let secret = self.secret_of(&args.id).await?;
         let field = args.field.unwrap_or_else(|| "password".into());
         let value = secrets::field(&secret, &field)?;
-        let (value, handle) = if self.rules.access().mask_secrets {
+        let (value, handle) = if self.rules.access().masked() {
             (None, Some(self.vault.put(value)))
         } else {
             (Some(value), None)
@@ -733,7 +735,7 @@ impl PassboltMcp {
     }
 
     #[tool(
-        description = "The current TOTP code of a resource; never its seed.",
+        description = "The current TOTP code of a resource, or a handle to it; never its seed.",
         annotations(read_only_hint = true)
     )]
     async fn get_totp_code(
@@ -748,9 +750,15 @@ impl PassboltMcp {
                 async move { get_totp_code(&client, &id).await }
             })
             .await?;
+        let (code, handle) = if self.rules.access().masked() {
+            (None, Some(self.vault.put(code)))
+        } else {
+            (Some(code), None)
+        };
         Ok(Json(TotpCode {
             id,
             code,
+            handle,
             seconds_remaining,
         }))
     }
@@ -1444,7 +1452,7 @@ impl PassboltMcp {
                 .folders()
                 .map(std::collections::HashSet::len),
             confirm: self.confirm.tools().to_vec(),
-            mask_secrets: access.mask_secrets,
+            mask_secrets: access.masked(),
             commands: self
                 .commands
                 .iter()

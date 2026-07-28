@@ -152,7 +152,7 @@ One field of the secret of a resource: its password by default.
 
 ### `get_totp_code`
 
-The current TOTP code of a resource; never its seed.
+The current TOTP code of a resource, or a handle to it; never its seed.
 
 *Read only.*
 

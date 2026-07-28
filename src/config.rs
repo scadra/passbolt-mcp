@@ -63,9 +63,17 @@ pub struct AccessConfig {
     pub write: bool,
     pub secrets: bool,
     pub share: bool,
-    pub mask_secrets: bool,
+    pub reveal_secrets: bool,
     pub allow_tools: Vec<String>,
     pub deny_tools: Vec<String>,
+}
+
+impl AccessConfig {
+    /// Secrets come as handles: unless the operator sets `reveal_secrets`.
+    #[must_use]
+    pub const fn masked(&self) -> bool {
+        !self.reveal_secrets
+    }
 }
 
 #[derive(Debug, Default, Clone, Deserialize)]
@@ -242,10 +250,10 @@ mod tests {
     #[test]
     fn commands() {
         let config = Config::parse(
-            "[access]\nmask_secrets = true\n[commands.psql]\nrun = [\"psql\", \"-c\", \"{query}\"]\nenv = { PGPASSWORD = \"{secret}\" }",
+            "[access]\n[commands.psql]\nrun = [\"psql\", \"-c\", \"{query}\"]\nenv = { PGPASSWORD = \"{secret}\" }",
         )
         .unwrap();
-        assert!(config.access.mask_secrets);
+        assert!(config.access.masked());
         let psql = &config.commands["psql"];
         assert_eq!(psql.run, ["psql", "-c", "{query}"]);
         assert!(psql.takes_secret());
