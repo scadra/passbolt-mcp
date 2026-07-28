@@ -182,7 +182,7 @@ async fn no_secrets_by_default() {
 #[tokio::test]
 #[ignore = "needs a Passbolt server"]
 async fn secrets_stay_out_of_the_logs() {
-    let config = ConfigWith::new("secrets = true\nwrite = true");
+    let config = ConfigWith::new("secrets = true\nreveal_secrets = true\nwrite = true");
     let command =
         tokio::process::Command::new(env!("CARGO_BIN_EXE_passbolt-mcp")).configure(|command| {
             command
@@ -580,7 +580,7 @@ async fn audit_without_secrets() {
     let dir = tempfile::tempdir().unwrap();
     let audit = dir.path().join("audit.jsonl");
     let config = ConfigWith::new(&format!(
-        "write = true\nsecrets = true\n[audit]\nfile = \"{}\"",
+        "write = true\nsecrets = true\nreveal_secrets = true\n[audit]\nfile = \"{}\"",
         audit.display()
     ));
     let client = client_with(&config).await;
@@ -709,7 +709,7 @@ async fn prompts() {
     assert!(text.contains("access.secrets is false"));
     client.cancel().await.unwrap();
 
-    let config = ConfigWith::new("write = true\nsecrets = true");
+    let config = ConfigWith::new("write = true\nsecrets = true\nreveal_secrets = true");
     let client = client_with(&config).await;
     let prompts = client.list_all_prompts().await.unwrap();
     assert!(prompts
@@ -721,7 +721,7 @@ async fn prompts() {
 #[tokio::test]
 #[ignore = "needs a Passbolt server"]
 async fn secret_tools() {
-    let config = ConfigWith::new("write = true\nsecrets = true");
+    let config = ConfigWith::new("write = true\nsecrets = true\nreveal_secrets = true");
     let client = client_with(&config).await;
     let root = format!("mcp-e2e-secrets-{}", std::process::id());
     call(&client, "create_folder", json!({ "name": root })).await;
@@ -821,7 +821,7 @@ async fn secret_tools() {
 #[tokio::test]
 #[ignore = "needs a Passbolt server"]
 async fn totp() {
-    let config = ConfigWith::new("write = true\nsecrets = true");
+    let config = ConfigWith::new("write = true\nsecrets = true\nreveal_secrets = true");
     let client = client_with(&config).await;
     let root = format!("mcp-e2e-totp-{}", std::process::id());
     let folder = call(&client, "create_folder", json!({ "name": root })).await["id"]
@@ -861,6 +861,14 @@ async fn totp() {
     )
     .await;
     assert!(!seed.to_string().contains("JBSWY3DPEHPK3PXP"));
+    let masked = client_with(&ConfigWith::new("secrets = true")).await;
+    let code = call(&masked, "get_totp_code", json!({ "id": totp.id })).await;
+    assert!(code["code"].is_null());
+    assert!(code["handle"]
+        .as_str()
+        .unwrap()
+        .starts_with("passbolt:secret/"));
+    masked.cancel().await.unwrap();
 
     call(
         &client,
@@ -884,7 +892,7 @@ async fn policy_generator() {
         .await
         .unwrap();
     session.close().await;
-    let config = ConfigWith::new("secrets = true");
+    let config = ConfigWith::new("secrets = true\nreveal_secrets = true");
     let client = client_with(&config).await;
 
     let default = call(&client, "generate_password", json!({})).await;
@@ -962,7 +970,7 @@ async fn masked_secrets() {
     writer.cancel().await.unwrap();
 
     let config = ConfigWith::new(&format!(
-        "write = true\nsecrets = true\nmask_secrets = true\n\
+        "write = true\nsecrets = true\n\
          [commands.show]\n\
          description = \"prints the password, as is and in base64\"\n\
          run = [\"sh\", \"-c\", \"echo \\\"$PW\\\"; printf %s \\\"$PW\\\" | base64; echo {{word}}\"]\n\
@@ -1189,7 +1197,7 @@ async fn limits() {
     client.cancel().await.unwrap();
 
     let limited =
-        ConfigWith::new("secrets = true\n[limits]\ncalls_per_minute = 3\nsecrets_per_minute = 1");
+        ConfigWith::new("secrets = true\nreveal_secrets = true\n[limits]\ncalls_per_minute = 3\nsecrets_per_minute = 1");
     let client = client_with(&limited).await;
     call(&client, "get_secret", json!({ "id": id })).await;
     let secrets = refused(&client, "get_secret", json!({ "id": id })).await;
@@ -1239,7 +1247,9 @@ async fn scope_on_reads() {
         .clone();
     client.cancel().await.unwrap();
 
-    let scoped = ConfigWith::new(&format!("secrets = true\n[scope]\nfolders = [\"{root}\"]"));
+    let scoped = ConfigWith::new(&format!(
+        "secrets = true\nreveal_secrets = true\n[scope]\nfolders = [\"{root}\"]"
+    ));
     let client = client_with(&scoped).await;
     let whoami = call(&client, "whoami", json!({})).await;
     assert_eq!(whoami["scope_folders"], 1);
@@ -1358,7 +1368,7 @@ async fn call_api() {
     let address = api_server(token.clone()).await;
 
     let config = ConfigWith::new(&format!(
-        "secrets = true\nmask_secrets = true\n\
+        "secrets = true\n\
          [apis.fixed]\nbase_url = \"http://{address}/v1\"\nsecret = \"passbolt:{id}\"\n\
          headers = {{ Authorization = \"Bearer {{secret}}\" }}\n\
          [apis.given]\nbase_url = \"http://{address}/v1/\"\n\
@@ -1456,7 +1466,7 @@ async fn fill_template() {
     let source = dir.path().join("env.tpl");
     let target = dir.path().join(".env");
     let config = ConfigWith::new(&format!(
-        "secrets = true\nmask_secrets = true\n\
+        "secrets = true\n\
          [templates.env]\nsource = \"{}\"\ntarget = \"{}\"\n",
         source.display(),
         target.display()
@@ -1566,9 +1576,7 @@ async fn show_secret() {
     .await["id"]
         .clone();
 
-    let config = ConfigWith::new(
-        "secrets = true\nmask_secrets = true\n[confirm]\ntools = [\"show_secret\"]",
-    );
+    let config = ConfigWith::new("secrets = true\n[confirm]\ntools = [\"show_secret\"]");
     let path = config.0.to_str().unwrap().to_string();
     for protocol in [ProtocolVersion::V_2025_11_25, ProtocolVersion::V_2026_07_28] {
         let lifecycle = if protocol.has_initialize() {
@@ -1681,7 +1689,7 @@ async fn confirm() {
     let dir = tempfile::tempdir().unwrap();
     let audit = dir.path().join("audit.jsonl");
     let confirming = ConfigWith::new(&format!(
-        "secrets = true\n[audit]\nfile = \"{}\"\n[confirm]\ntools = [\"get_secret\"]",
+        "secrets = true\nreveal_secrets = true\n[audit]\nfile = \"{}\"\n[confirm]\ntools = [\"get_secret\"]",
         audit.display()
     ));
     let cases = [
