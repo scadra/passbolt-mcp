@@ -38,13 +38,13 @@ pub struct GetSecret {
 pub struct SecretField {
     pub id: String,
     pub field: String,
-    #[schemars(description = "The secret itself: use it for the task, do not repeat it.")]
+    #[schemars(
+        description = "The secret itself, with `access.reveal_secrets` only: use it for the task, do not repeat it."
+    )]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub value: Option<String>,
-    #[schemars(
-        description = "With `access.mask_secrets`, in place of the value: give it to `create_resource`, \
-        `update_resource` or `run_with_secret`. It works on this server only, for 15 minutes."
-    )]
+    #[schemars(description = "In place of the value: give it to `create_resource`, \
+        `update_resource` or `run_with_secret`. It works on this server only, for 15 minutes.")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub handle: Option<String>,
 }
@@ -62,7 +62,14 @@ pub struct ShownSecret {
 #[schemars(description = "`get_totp_code`: the current code, never the seed.")]
 pub struct TotpCode {
     pub id: String,
-    pub code: String,
+    #[schemars(description = "With `access.reveal_secrets` only.")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    #[schemars(
+        description = "In place of the code: give it to `run_with_secret`, `call_api` or `fill_template`."
+    )]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub handle: Option<String>,
     #[schemars(description = "How long the code stays valid.")]
     pub seconds_remaining: u64,
 }
@@ -111,12 +118,13 @@ pub struct GeneratePassword {
 #[derive(Serialize, JsonSchema)]
 pub struct GeneratedPassword {
     #[schemars(
-        description = "Not saved anywhere: give it to `create_resource` or `update_resource`."
+        description = "With `access.reveal_secrets` only. Not saved anywhere: give it to `create_resource` or \
+        `update_resource`."
     )]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub password: Option<String>,
     #[schemars(
-        description = "With `access.mask_secrets`, in place of the password: give it to `create_resource` \
+        description = "In place of the password: give it to `create_resource` \
         or `update_resource`. It works on this server only, for 15 minutes."
     )]
     #[serde(skip_serializing_if = "Option::is_none")]

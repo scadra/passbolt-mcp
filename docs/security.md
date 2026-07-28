@@ -75,18 +75,21 @@ steers the agent.
 
 #### Mitigation
 
-passbolt-mcp offers [handles](secrets-without-seeing.md): with `access.mask_secrets = true`,
-`get_secret` and `generate_password` return an opaque handle instead of the value. passbolt-mcp
+By default, the agent never sees a secret: `get_secret`, `generate_password` and `get_totp_code`
+return an opaque [handle](secrets-without-seeing.md) instead of the value. passbolt-mcp
 then puts the secret where it is needed: in Passbolt (`create_resource`, `update_resource`), in
 the environment of a declared command (`run_with_secret`), in a header of a request to a declared
 API (`call_api`), in a declared file (`fill_template`), or in front of the person
-(`show_secret`). The value never reaches the model.
+(`show_secret`). The value never reaches the model, unless the operator sets
+`access.reveal_secrets`.
 
 Operators:
 
 - **MUST** leave `access.secrets` off unless the agent needs secrets. It is off by default.
-- **SHOULD** turn on `access.mask_secrets` whenever `access.secrets` is on, and give the agent
-  [declared commands](secrets-without-seeing.md#run-a-command-with-a-secret) to use them.
+- **MUST NOT** set `access.reveal_secrets` unless the task needs the value in the context of the
+  model. When the person needs a password, `show_secret` gives it to them, not to the agent.
+- **SHOULD** give the agent [declared commands](secrets-without-seeing.md#run-a-command-with-a-secret),
+  APIs and templates to use its handles.
 - **SHOULD** limit secrets to the folders the agent needs with `scope.folders`, and keep
   `limits.secrets_per_minute` low.
 
@@ -269,12 +272,12 @@ commands as the same user as passbolt-mcp can read what passbolt-mcp reads.
 #### Mitigation
 
 passbolt-mcp reads the passphrase from a file or a command, never from its command line or its
-configuration, and `passbolt-mcp check` warns whenever `mask_secrets` is on.
+configuration, and `passbolt-mcp check` warns whenever `access.secrets` is on.
 
 Operators:
 
-- **MUST** run passbolt-mcp where the agent cannot read its files when `mask_secrets` is on: as
-  another operating-system user, or in its Docker image.
+- **MUST** run passbolt-mcp where the agent cannot read its files when `access.secrets` is on:
+  as another operating-system user, or in its Docker image.
 - **SHOULD** make the key and the passphrase readable by the account of passbolt-mcp only, and
   take the passphrase from a secret store with `passphrase_command`.
 
@@ -463,15 +466,35 @@ An agent in a loop, or steered by injected content, could read every secret at o
 passbolt-mcp limits calls per minute, 120 for all tools and 20 for the tools that read or use a
 secret. Over a limit, a call is refused until the last minute makes room.
 
+## What masking does not protect
+
+Masking keeps the **secret** away from the model. It does not keep away what the secret opens, nor
+what the operator lets through.
+
+- **What a secret unlocks.** With `run_with_secret` on `psql`, the agent never sees the password of
+  the database, but it sees the answer of `SELECT * FROM users`. With `call_api`, it sees what the
+  API answers. Masking protects the key, not what is behind the door. Narrow what is behind it:
+  Passbolt shares, `scope.folders`, `[confirm]`, and commands and APIs that do only what the task
+  needs, such as a read-only database user and the fewest `methods`.
+- **A command that prints the secret transformed.** The output is scrubbed of the secret as is, in
+  base64, URL-encoded and in hexadecimal; not reversed, encrypted, or one character per line.
+  Declare commands that do not print their secrets: the agent cannot change them.
+- **An agent with a shell, as the same OS user.** It reads the key of the MCP user and its
+  passphrase, and decrypts everything itself. Run passbolt-mcp as another OS user, or in Docker.
+- **A target the agent can read.** A file of `[templates]` in reach of the agent gives the secrets
+  back. Put the targets out of its reach.
+- **`reveal_secrets`.** Once the operator sets it, `get_secret`, `generate_password` and
+  `get_totp_code` return values, in the context of the model.
+- **What the client shows the person.** With `show_secret`, the value may stay on screen, or in the
+  history of the conversation, until the person closes it.
+
 ## What passbolt-mcp does not protect against
 
 - **Broad rules and broad shares.** The barriers are only as tight as you set them.
 - **A compromised machine.** While the agent runs, the key of the MCP user and its passphrase are
   in the memory of passbolt-mcp.
-- **What a secret unlocks.** Masking protects the credential, not the database session or the API
-  token the agent gets with it.
-- **What the client does with the answers.** Without `mask_secrets`, a secret given to the agent is
-  in its context.
+- **What the client does with the answers.** With `reveal_secrets`, a secret given to the agent is
+  in its context, and the client keeps it in its history.
 
 ## Checklist
 
@@ -484,7 +507,7 @@ Before giving an agent secrets:
 - [ ] The server key is pinned (`passbolt-mcp verify`), and `tls_skip_verify` is off.
 - [ ] `scope.folders` names the folders the agent works in.
 - [ ] Only the `[access]` keys the task needs are on; `allow_tools` narrows them further.
-- [ ] `access.mask_secrets` is on, the agent uses declared commands, and passbolt-mcp runs as
+- [ ] `access.reveal_secrets` is off, the agent uses declared commands, and passbolt-mcp runs as
       another OS user or in Docker.
 - [ ] No declared command runs a shell on a placeholder.
 - [ ] The APIs of `[apis]` have the narrowest `base_url` and `methods`, and the targets of

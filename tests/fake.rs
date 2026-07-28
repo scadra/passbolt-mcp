@@ -206,7 +206,11 @@ async fn call<H: ClientHandler>(
 #[tokio::test(flavor = "multi_thread")]
 async fn tools() {
     let (_fake, url) = fake().await;
-    let setup = Setup::new(&url, true, "[access]\nsecrets = true\n");
+    let setup = Setup::new(
+        &url,
+        true,
+        "[access]\nsecrets = true\nreveal_secrets = true\n",
+    );
     let client = client(&setup).await;
     assert_eq!(call(&client, "whoami", json!({})).await["role"], "user");
     let page = call(&client, "list_resources", json!({})).await;
@@ -260,7 +264,8 @@ impl ClientHandler for Person {
     }
 }
 
-const CONFIRM_SECRETS: &str = "[access]\nsecrets = true\n[confirm]\ntools = [\"get_secret\"]\n";
+const CONFIRM_SECRETS: &str =
+    "[access]\nsecrets = true\nreveal_secrets = true\n[confirm]\ntools = [\"get_secret\"]\n";
 
 async fn confirmed(
     says: Option<ElicitationAction>,

@@ -74,7 +74,7 @@ histories, process lists and backups.
 | `write` | `false` | create, update, move and delete resources and folders, tags, comments |
 | `secrets` | `false` | read the secret of a resource (password, TOTP code…) |
 | `share` | `false` | share resources and folders |
-| `mask_secrets` | `false` | secrets come as handles, never as values: see [`[commands]`](#commands-use-a-secret-without-seeing-it) |
+| `reveal_secrets` | `false` | secrets come as values, in the context of the agent, in place of handles: see [`[commands]`](#commands-use-a-secret-without-seeing-it) |
 | `allow_tools` | `[]` | when not empty, only these tools |
 | `deny_tools` | `[]` | never these tools, even if allowed above |
 
@@ -153,7 +153,7 @@ not to the model. A call with `dry_run` is not asked: it changes nothing.
 
 ## `[commands]`: use a secret without seeing it
 
-With `access.mask_secrets = true`, `get_secret` and `generate_password` return a **handle**,
+By default, `get_secret`, `generate_password` and `get_totp_code` return a **handle**,
 such as `passbolt:secret/7f3c…`, in place of the value. `create_resource` and `update_resource`
 take a handle wherever they take a password or a note. A handle lives in the memory of
 `passbolt-mcp` only, for 15 minutes: it is worth nothing anywhere else.
@@ -164,7 +164,6 @@ here; it cannot write one.
 ```toml
 [access]
 secrets = true
-mask_secrets = true
 
 [commands.psql-staging]
 description = "A query on the staging database"
@@ -246,6 +245,7 @@ A CI job reading a deployment password:
 ```toml
 [access]
 secrets = true
+reveal_secrets = true
 allow_tools = ["list_resources", "get_resource", "get_secret"]
 
 [scope]

@@ -147,11 +147,17 @@ impl Rules {
                 ));
             }
         }
-        if self.access.mask_secrets {
+        if self.access.reveal_secrets {
             warnings.push(
-                "access.mask_secrets is true: run passbolt-mcp as another OS user than the agent, \
-                 or in Docker. An agent with a shell, as the same user, reads the key of the MCP \
-                 user."
+                "access.reveal_secrets is true: the agent sees secrets, and so do the provider of \
+                 the model and the history of the client."
+                    .into(),
+            );
+        } else if self.access.secrets {
+            warnings.push(
+                "The agent gets handles, not secrets: run passbolt-mcp as another OS user than the \
+                 agent, or in Docker. An agent with a shell, as the same user, reads the key of the \
+                 MCP user."
                     .into(),
             );
         }
@@ -359,12 +365,21 @@ mod tests {
         assert_eq!(Rules::default().warnings(resources, ["ci", "ops"]).len(), 0);
         let masked = Rules::new(
             AccessConfig {
-                mask_secrets: true,
+                secrets: true,
                 ..AccessConfig::default()
             },
             Scope::default(),
         );
         assert!(masked.warnings(resources, ["ci"])[0].contains("another OS user"));
+        let revealed = Rules::new(
+            AccessConfig {
+                secrets: true,
+                reveal_secrets: true,
+                ..AccessConfig::default()
+            },
+            Scope::default(),
+        );
+        assert!(revealed.warnings(resources, ["ci"])[0].contains("the agent sees secrets"));
     }
 
     #[test]

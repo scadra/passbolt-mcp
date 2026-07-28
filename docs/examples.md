@@ -27,8 +27,8 @@ With `access.secrets = true`.
 
 | Ask | It calls |
 |---|---|
-| "Connect to the staging database with its password and list the tables." | `list_resources`, `get_secret` |
-| "Give me the current 2FA code of the AWS root account." | `get_totp_code` |
+| "List the tables of the staging database." | `list_resources`, `get_secret`, `run_with_secret` |
+| "Show me the password of the Grafana admin." | `list_resources`, `show_secret` |
 | "Is any password in `Agents/CI` in a known breach?" | `list_resources`, `check_password_pwned` |
 | "Generate a password that follows our policy." | `generate_password` |
 | "Generate a 32-character password without symbols." | `generate_password` (`symbols` false) |
@@ -36,8 +36,8 @@ With `access.secrets = true`.
 
 ## Secrets without seeing them
 
-With `access.mask_secrets = true` and [commands](secrets-without-seeing.md) declared. The agent
-gets handles, never values.
+With `access.secrets = true` and [commands](secrets-without-seeing.md) declared. The agent gets
+handles, never values: this is the default.
 
 | Ask | It calls |
 |---|---|

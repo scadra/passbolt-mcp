@@ -39,8 +39,8 @@ could not be kept within `scope.folders`.
 
 ## Secrets
 
-Offered with `access.secrets = true`, within `scope.folders`. A secret goes to the agent and
-nowhere else: not to the logs, at any level, nor to the errors.
+Offered with `access.secrets = true`, within `scope.folders`. A secret goes nowhere else than where
+the agent uses it: not to the logs, at any level, nor to the errors.
 
 | Tool | Arguments | What |
 |---|---|---|
@@ -53,10 +53,10 @@ nowhere else: not to the logs, at any level, nor to the errors.
 | `fill_template` | `template` | writes the target of a template of [`[templates]`](secrets-without-seeing.md#fill-a-template), each `{{ passbolt:… }}` of the source replaced with its secret; returns the number of secrets, never the content. Offered when there is a template. |
 | `show_secret` | `id`, `field` | shows one field of the secret to the person, in the client, through elicitation; the agent gets `shown`, never the value |
 
-With `access.mask_secrets = true`, `get_secret` and `generate_password` return a handle in place of
-the value, which `create_resource`, `update_resource`, `run_with_secret`, `call_api` and
-`fill_template` take: the agent uses
-the secret without seeing it.
+By default, `get_secret`, `generate_password` and `get_totp_code` return a handle in place of the
+value, which `create_resource`, `update_resource`, `run_with_secret`, `call_api` and
+`fill_template` take: the agent uses the secret without seeing it. They return values only with
+`access.reveal_secrets = true`.
 
 ## Writing
 
