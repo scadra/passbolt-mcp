@@ -18,6 +18,7 @@ This page describes what passbolt-mcp does today, how it is tested, and what com
 | **The password policy** | `generate_password` follows the password policy of the organization: password or passphrase, length, character sets; PIN codes; the strength said, and whether it is below the policy. |
 | **Secrets without seeing them** | By default, handles in place of values; values only with `access.reveal_secrets`. passbolt-mcp puts the secret in a declared command (`run_with_secret`), a request to a declared API (`call_api`) or a declared file (`fill_template`), its output scrubbed, or shows it to the person only (`show_secret`). See [Use a secret without seeing it](secrets-without-seeing.md). |
 | **Transports** | stdio; Streamable HTTP on loopback, which refuses browser pages (`Origin`). |
+| **Distribution** | Homebrew (`scadra/tap`), crates.io, a Claude Desktop extension (`.mcpb`), install buttons for Cursor and VS Code, static Linux binaries, macOS and Windows binaries, a Docker image for amd64 and arm64. See [Installation](getting-started/installation.md). |
 
 ### Tested against a real Passbolt
 
@@ -41,10 +42,9 @@ The unit tests and a fake Passbolt cover the rest offline, on each pull request.
 
 | | What | Why |
 |---|---|---|
-| **1** | Distribution | crates.io, a Claude Desktop bundle (`.mcpb`), install buttons for Cursor and VS Code, a static Linux binary, Homebrew. |
-| **2** | HTTP with a token | Streamable HTTP beyond loopback, behind `Authorization: Bearer`, for a server shared by agents; Docker with a token. |
-| **3** | Profiles | One `passbolt-mcp` serving several agents, each with its MCP user and its rules (`--profile`). |
-| **4** | Clients checked before each release | Claude Code, Claude Desktop, Cursor and VS Code, by hand: the configurations of [Connect a client](guides/serve.md), and the question of `[confirm]` as each client shows it. The protocol itself is already tested on every change, through the MCP client of the Rust SDK. |
+| **1** | HTTP with a token | Streamable HTTP beyond loopback, behind `Authorization: Bearer`, for a server shared by agents; Docker with a token. |
+| **2** | Profiles | One `passbolt-mcp` serving several agents, each with its MCP user and its rules (`--profile`). |
+| **3** | Clients checked before each release | Claude Code, Claude Desktop, Cursor and VS Code, by hand: the configurations of [Connect a client](guides/serve.md), the Claude Desktop extension, the install buttons, and the question of `[confirm]` as each client shows it. The protocol itself is already tested on every change, through the MCP client of the Rust SDK. |
 
 Later, in the SDK first: `passbolt-mcp init <invitation link>`, which generates the key of the
 MCP user and activates it without a browser.

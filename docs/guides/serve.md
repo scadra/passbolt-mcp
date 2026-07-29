@@ -47,6 +47,9 @@ Code shows it connected, and its tools.
 
 ## Claude Desktop
 
+The simplest is the [desktop extension](../getting-started/installation.md#as-a-claude-desktop-extension):
+open the `.mcpb` file of a release, and choose the configuration file. Otherwise, by hand:
+
 `claude_desktop_config.json`: Settings → Developer → Edit Config, or
 `~/Library/Application Support/Claude/` on macOS, `%APPDATA%\Claude\` on Windows.
 
@@ -65,7 +68,13 @@ Restart Claude Desktop; `passbolt` shows in the tools menu of a conversation.
 
 ## Cursor
 
-`~/.cursor/mcp.json`, or `.cursor/mcp.json` in a project:
+Once `passbolt-mcp` is installed and configured, in your `PATH`:
+
+[![Add passbolt-mcp to Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/install-mcp?name=passbolt&config=eyJjb21tYW5kIjoicGFzc2JvbHQtbWNwIiwiYXJncyI6WyJzZXJ2ZSJdfQ%3D%3D)
+
+The button adds `passbolt-mcp serve`, which reads the configuration from its
+[default place](../rules.md#the-file). To give another, or by hand: `~/.cursor/mcp.json`,
+or `.cursor/mcp.json` in a project:
 
 ```json
 {
@@ -80,6 +89,12 @@ Restart Claude Desktop; `passbolt` shows in the tools menu of a conversation.
 
 ## VS Code
 
+Once `passbolt-mcp` is installed and configured, in your `PATH`:
+
+[![Install passbolt-mcp in VS Code](https://img.shields.io/badge/VS_Code-Install_passbolt--mcp-0098FF?logo=visualstudiocode)](https://vscode.dev/redirect/mcp/install?name=passbolt&config=%7B%22command%22%3A%22passbolt-mcp%22%2C%22args%22%3A%5B%22serve%22%5D%7D)
+
+The button adds `passbolt-mcp serve` to your user configuration, which reads the configuration of
+passbolt-mcp from its [default place](../rules.md#the-file). To give another, or by hand:
 `.vscode/mcp.json` in a project, or **MCP: Open User Configuration**; the key is `servers`:
 
 ```json

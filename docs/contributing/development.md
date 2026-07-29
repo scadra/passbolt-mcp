@@ -19,8 +19,9 @@ cargo deny check                         # advisories, licenses, sources
 
 The CI runs the same, plus `cargo check --locked` with Rust 1.88.
 
-[`tools-reference.md`](../tools-reference.md) is written from the schemas of the tools; a test
-fails when it is out of date: `UPDATE_DOCS=1 cargo test tools_reference` writes it again.
+[`tools-reference.md`](../tools-reference.md) and the manifest of the Claude Desktop extension,
+`packaging/mcpb/manifest.json`, are written from the tools; a test fails when one is out of date:
+`UPDATE_DOCS=1 cargo test --lib reference` writes them again.
 
 ## Tests
 
@@ -68,3 +69,15 @@ connection comes from the browser page, with an `Origin`, and `passbolt-mcp` ref
 
 On stderr, filtered by `PASSBOLT_MCP_LOG` (`warn` by default, `debug` to see more): in stdio,
 stdout carries the MCP messages and nothing else.
+
+## Release
+
+1. Set the version in `Cargo.toml`, run `UPDATE_DOCS=1 cargo test --lib reference`, and move the
+   changes of `CHANGELOG.md` under the version.
+2. Tag `v<version>` and push the tag. The `Release` workflow then publishes:
+   - the archives of the binaries and their SHA-256;
+   - the Claude Desktop extension, `passbolt-mcp-v<version>.mcpb`;
+   - the Homebrew formula, into `scadra/homebrew-tap` when the secret `HOMEBREW_TAP_TOKEN` is set;
+   - the crate, on crates.io when the secret `CARGO_REGISTRY_TOKEN` is set;
+   - the Docker image, on `ghcr.io/scadra/passbolt-mcp`.
+3. Check the clients by hand, as the [roadmap](../roadmap.md#next) says.
