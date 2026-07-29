@@ -18,16 +18,22 @@ jobs:
     strategy:
       matrix:
         include:
-          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu }
-          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
-          - { os: macos-13, target: x86_64-apple-darwin }
-          - { os: macos-14, target: aarch64-apple-darwin }
+          # Linux: static (musl), for any distribution.
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-musl }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl }
+          - { os: macos-15, target: x86_64-apple-darwin }
+          - { os: macos-15, target: aarch64-apple-darwin }
           - { os: windows-latest, target: x86_64-pc-windows-msvc }
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+      - if: contains(matrix.target, 'musl')
+        run: |
+          sudo apt-get update && sudo apt-get install -y musl-tools
+          target="${{ matrix.target }}"
+          echo "CC_${target//-/_}=musl-gcc" >> "$GITHUB_ENV"
       - run: cargo build --release --locked --target ${{ matrix.target }}
       - name: Package
         shell: bash
@@ -51,6 +57,88 @@ jobs:
           files: |
             ${{ env.ARCHIVE }}
             ${{ env.ARCHIVE }}.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: |
+            ${{ env.ARCHIVE }}
+            ${{ env.ARCHIVE }}.sha256
+
+  mcpb:
+    name: Claude Desktop bundle
+    needs: binaries
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Bundle
+        run: |
+          set -euo pipefail
+          cd dist
+          for archive in *.tar.gz; do tar xzf "$archive"; done
+          unzip -q "passbolt-mcp-${GITHUB_REF_NAME}-x86_64-pc-windows-msvc.zip"
+          mkdir -p bundle/server
+          cp ../packaging/mcpb/manifest.json bundle/
+          # One binary for both Macs; Claude Desktop adds .exe on Windows.
+          lipo -create -output bundle/server/passbolt-mcp \
+            "passbolt-mcp-${GITHUB_REF_NAME}-aarch64-apple-darwin/passbolt-mcp" \
+            "passbolt-mcp-${GITHUB_REF_NAME}-x86_64-apple-darwin/passbolt-mcp"
+          cp "passbolt-mcp-${GITHUB_REF_NAME}-x86_64-pc-windows-msvc/passbolt-mcp.exe" bundle/server/
+          bundle="passbolt-mcp-${GITHUB_REF_NAME}.mcpb"
+          npx -y @anthropic-ai/mcpb@2.1.2 validate bundle/manifest.json
+          npx -y @anthropic-ai/mcpb@2.1.2 pack bundle "$bundle"
+          shasum -a 256 "$bundle" > "$bundle.sha256"
+          echo "BUNDLE=dist/$bundle" >> "$GITHUB_ENV"
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ env.BUNDLE }}
+            ${{ env.BUNDLE }}.sha256
+
+  homebrew:
+    name: Homebrew formula
+    needs: binaries
+    runs-on: ubuntu-latest
+    env:
+      TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Formula
+        run: bash scripts/homebrew-formula.sh "${GITHUB_REF_NAME#v}" dist > passbolt-mcp.rb
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: passbolt-mcp.rb
+      # Into the tap scadra/homebrew-tap, when the token is set.
+      - if: env.TAP_TOKEN != ''
+        run: |
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/scadra/homebrew-tap.git" tap
+          mkdir -p tap/Formula
+          cp passbolt-mcp.rb tap/Formula/
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/passbolt-mcp.rb
+          git commit -m "passbolt-mcp ${GITHUB_REF_NAME}"
+          git push
+
+  crates:
+    name: crates.io
+    needs: binaries
+    runs-on: ubuntu-latest
+    env:
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - if: env.CARGO_REGISTRY_TOKEN != ''
+        run: cargo publish --locked
 
   docker:
     name: Docker image
