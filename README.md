@@ -108,13 +108,14 @@ elsewhere, it finds nothing; asked to change `Staging DB`, it has no tool to do 
 
 ## Install
 
-From a [release](https://github.com/scadra/passbolt-mcp/releases): a binary for Linux, macOS and
-Windows, or the Docker image `ghcr.io/scadra/passbolt-mcp`. From the sources, with Rust 1.88 or
-later:
-
 ```bash
-cargo install --locked --git https://github.com/scadra/passbolt-mcp
+brew install scadra/tap/passbolt-mcp      # macOS, Linux
+cargo install --locked passbolt-mcp       # with Rust 1.88 or later
 ```
+
+Or from a [release](https://github.com/scadra/passbolt-mcp/releases): a binary for macOS and
+Windows, a static one for any Linux, a Claude Desktop extension (`.mcpb`); or the Docker image
+`ghcr.io/scadra/passbolt-mcp`. See [installation](docs/getting-started/installation.md).
 
 Then, with the [MCP user](docs/guides/mcp-user.md) created and its [rules](docs/rules.md) written:
 
@@ -123,6 +124,9 @@ passbolt-mcp verify   # pin the server key, once
 passbolt-mcp check    # who the agent will be, and what it can do
 claude mcp add passbolt -- passbolt-mcp --config ~/.config/passbolt-mcp/passbolt-mcp.toml
 ```
+
+[![Add passbolt-mcp to Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/install-mcp?name=passbolt&config=eyJjb21tYW5kIjoicGFzc2JvbHQtbWNwIiwiYXJncyI6WyJzZXJ2ZSJdfQ%3D%3D)
+[![Install passbolt-mcp in VS Code](https://img.shields.io/badge/VS_Code-Install_passbolt--mcp-0098FF?logo=visualstudiocode)](https://vscode.dev/redirect/mcp/install?name=passbolt&config=%7B%22command%22%3A%22passbolt-mcp%22%2C%22args%22%3A%5B%22serve%22%5D%7D)
 
 Claude Desktop, Cursor, VS Code, Codex, Docker, HTTP: see [connect a client](docs/guides/serve.md).
 

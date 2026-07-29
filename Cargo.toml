@@ -6,6 +6,12 @@ rust-version = "1.88"
 description = "Passbolt MCP server — an AI agent works with Passbolt through a user of its own"
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/scadra/passbolt-mcp"
+homepage = "https://scadra.github.io/passbolt-mcp/"
+documentation = "https://scadra.github.io/passbolt-mcp/"
+readme = "README.md"
+keywords = ["mcp", "passbolt", "password-manager", "ai-agent", "secrets"]
+categories = ["command-line-utilities", "authentication", "cryptography"]
+include = ["/src", "/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE", "/CHANGELOG.md"]
 
 [dependencies]
 anyhow = "1"

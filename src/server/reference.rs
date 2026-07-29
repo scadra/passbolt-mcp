@@ -18,6 +18,7 @@ use super::{needs, PassboltMcp};
 use crate::rules::Access;
 
 const PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/docs/tools-reference.md");
+const MANIFEST: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/packaging/mcpb/manifest.json");
 
 const SECTIONS: [(Access, &str, &str); 4] = [
     (Access::Read, "Reading", "Always offered."),
@@ -129,16 +130,83 @@ fn render() -> String {
     out
 }
 
-#[test]
-fn tools_reference() {
-    let reference = render();
+/// The manifest of the Claude Desktop bundle (`.mcpb`), its tools from the router.
+fn manifest() -> String {
+    let mut tools = PassboltMcp::tool_router().list_all();
+    tools.sort_by(|a, b| a.name.cmp(&b.name));
+    let tools: Vec<Value> = tools
+        .iter()
+        .map(|tool| {
+            serde_json::json!({
+                "name": tool.name,
+                "description": one_line(tool.description.as_deref().unwrap_or_default()),
+            })
+        })
+        .collect();
+    let docs = "https://scadra.github.io/passbolt-mcp/";
+    let manifest = serde_json::json!({
+        "manifest_version": "0.3",
+        "name": "passbolt-mcp",
+        "display_name": "Passbolt",
+        "version": env!("CARGO_PKG_VERSION"),
+        "description": "Work with Passbolt through a Passbolt user of the agent's own, within rules you set.",
+        "long_description": "Find credentials, use them without seeing them, rotate and share them. \
+            The agent works through a Passbolt user of its own, sees only what is shared with it, and \
+            never sees a secret unless the configuration says so.",
+        "author": { "name": "Passbolt SA", "url": "https://www.passbolt.com" },
+        "repository": { "type": "git", "url": env!("CARGO_PKG_REPOSITORY") },
+        "homepage": docs,
+        "documentation": docs,
+        "support": format!("{}/issues", env!("CARGO_PKG_REPOSITORY")),
+        "license": env!("CARGO_PKG_LICENSE"),
+        "keywords": ["passbolt", "password manager", "secrets", "credentials"],
+        "server": {
+            "type": "binary",
+            "entry_point": "server/passbolt-mcp",
+            "mcp_config": {
+                "command": "${__dirname}/server/passbolt-mcp",
+                "args": ["serve"],
+                "env": { "PASSBOLT_MCP_CONFIG": "${user_config.config}" },
+            },
+        },
+        "user_config": {
+            "config": {
+                "type": "file",
+                "title": "Configuration",
+                "description": "passbolt-mcp.toml: the Passbolt server, the MCP user and the rules. \
+                    See the quick start.",
+                "required": true,
+            },
+        },
+        "tools": tools,
+        "prompts_generated": true,
+        "compatibility": { "platforms": ["darwin", "win32"] },
+        "privacy_policies": [
+            "https://www.passbolt.com/privacy",
+            "https://haveibeenpwned.com/Privacy",
+        ],
+    });
+    serde_json::to_string_pretty(&manifest).unwrap() + "\n"
+}
+
+fn up_to_date(path: &str, content: &str) {
     if std::env::var_os("UPDATE_DOCS").is_some() {
-        std::fs::write(PATH, reference).unwrap();
+        std::fs::write(path, content).unwrap();
         return;
     }
-    let written = std::fs::read_to_string(PATH).unwrap_or_default();
+    let written = std::fs::read_to_string(path).unwrap_or_default();
     assert!(
-        written == reference,
-        "docs/tools-reference.md is out of date: UPDATE_DOCS=1 cargo test tools_reference"
+        written == content,
+        "{path} is out of date: UPDATE_DOCS=1 cargo test --lib reference"
     );
+}
+
+#[test]
+fn tools_reference() {
+    up_to_date(PATH, &render());
+}
+
+#[test]
+fn mcpb_manifest_reference() {
+    up_to_date(MANIFEST, &manifest());
 }

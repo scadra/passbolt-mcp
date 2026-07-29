@@ -4,6 +4,9 @@ This project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 ### Added
+- Distribution: Homebrew (`brew install scadra/tap/passbolt-mcp`), crates.io
+  (`cargo install passbolt-mcp`), a Claude Desktop extension (`.mcpb`) in each release, install
+  buttons for Cursor and VS Code; static Linux binaries (musl) in place of the glibc ones
 - `[confirm]`: the person approves the tools listed before they run, through the client (MCP
   elicitation: `input_required` from protocol 2026-07-28, `elicitation/create` before); a client
   that cannot ask is refused, or allowed with `unsupported = "allow"`. `whoami` and `check` list
