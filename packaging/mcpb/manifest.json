@@ -1,0 +1,184 @@
+{
+  "author": {
+    "name": "Passbolt SA",
+    "url": "https://www.passbolt.com"
+  },
+  "compatibility": {
+    "platforms": [
+      "darwin",
+      "win32"
+    ]
+  },
+  "description": "Work with Passbolt through a Passbolt user of the agent's own, within rules you set.",
+  "display_name": "Passbolt",
+  "documentation": "https://scadra.github.io/passbolt-mcp/",
+  "homepage": "https://scadra.github.io/passbolt-mcp/",
+  "keywords": [
+    "passbolt",
+    "password manager",
+    "secrets",
+    "credentials"
+  ],
+  "license": "AGPL-3.0-or-later",
+  "long_description": "Find credentials, use them without seeing them, rotate and share them. The agent works through a Passbolt user of its own, sees only what is shared with it, and never sees a secret unless the configuration says so.",
+  "manifest_version": "0.3",
+  "name": "passbolt-mcp",
+  "privacy_policies": [
+    "https://www.passbolt.com/privacy",
+    "https://haveibeenpwned.com/Privacy"
+  ],
+  "prompts_generated": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/scadra/passbolt-mcp"
+  },
+  "server": {
+    "entry_point": "server/passbolt-mcp",
+    "mcp_config": {
+      "args": [
+        "serve"
+      ],
+      "command": "${__dirname}/server/passbolt-mcp",
+      "env": {
+        "PASSBOLT_MCP_CONFIG": "${user_config.config}"
+      }
+    },
+    "type": "binary"
+  },
+  "support": "https://github.com/scadra/passbolt-mcp/issues",
+  "tools": [
+    {
+      "description": "Comment on a resource, as the MCP user.",
+      "name": "add_comment"
+    },
+    {
+      "description": "Call an API of the configuration, passbolt-mcp adding the secret to the request: the agent never sees it, and the answer comes back with the secret taken out. `whoami` lists the APIs.",
+      "name": "call_api"
+    },
+    {
+      "description": "Whether the password of a resource is in a known breach, by k-anonymity: only the first five characters of its SHA-1 leave, to Have I Been Pwned.",
+      "name": "check_password_pwned"
+    },
+    {
+      "description": "Create a folder; in a parent folder, it gets the permissions of the parent.",
+      "name": "create_folder"
+    },
+    {
+      "description": "Create a resource, its secret encrypted for the MCP user; in a folder, it gets the permissions of the folder.",
+      "name": "create_resource"
+    },
+    {
+      "description": "Delete a comment the MCP user wrote on a resource.",
+      "name": "delete_comment"
+    },
+    {
+      "description": "Delete a folder, for everyone it is shared with; with `with_content`, its subfolders and resources too. Try it with `dry_run` first.",
+      "name": "delete_folder"
+    },
+    {
+      "description": "Delete a resource, for everyone it is shared with. Try it with `dry_run` first.",
+      "name": "delete_resource"
+    },
+    {
+      "description": "Fill a template of the configuration: passbolt-mcp reads the file the agent wrote, puts each secret where `{{ passbolt:<resource id> }}`, `{{ passbolt:<resource id>#<field> }}` or a handle stands, and writes the target, which the agent cannot read. `whoami` lists the templates.",
+      "name": "fill_template"
+    },
+    {
+      "description": "The folders the agent can see, as a tree.",
+      "name": "folder_tree"
+    },
+    {
+      "description": "A new password, passphrase or PIN code, following the password policy of the organization unless asked otherwise, with its strength; saved nowhere.",
+      "name": "generate_password"
+    },
+    {
+      "description": "Who has access to a resource or a folder, and how.",
+      "name": "get_permissions"
+    },
+    {
+      "description": "A resource: name, username, URIs, description, folder, dates. Never its secret.",
+      "name": "get_resource"
+    },
+    {
+      "description": "One field of the secret of a resource: its password by default.",
+      "name": "get_secret"
+    },
+    {
+      "description": "The current TOTP code of a resource, or a handle to it; never its seed.",
+      "name": "get_totp_code"
+    },
+    {
+      "description": "The comments on a resource, oldest first.",
+      "name": "list_comments"
+    },
+    {
+      "description": "The folders the agent can see, with their paths.",
+      "name": "list_folders"
+    },
+    {
+      "description": "The resource types of the server: what a resource can hold.",
+      "name": "list_resource_types"
+    },
+    {
+      "description": "The resources the agent can see, with their names: never their secrets.",
+      "name": "list_resources"
+    },
+    {
+      "description": "Move a folder, with its content, into another folder of the scope.",
+      "name": "move_folder"
+    },
+    {
+      "description": "Move a resource to another folder of the scope.",
+      "name": "move_resource"
+    },
+    {
+      "description": "Rename a folder.",
+      "name": "rename_folder"
+    },
+    {
+      "description": "Run a command of the configuration with a password in its environment, which the agent never sees: what the command prints comes back with the password taken out. `whoami` lists the commands.",
+      "name": "run_with_secret"
+    },
+    {
+      "description": "Users and groups to share with.",
+      "name": "search_aros"
+    },
+    {
+      "description": "Mark a resource as a favorite of the MCP user, or unmark it.",
+      "name": "set_favorite"
+    },
+    {
+      "description": "Share a folder with users and groups, or revoke their access; the MCP user must own it. With `with_content` (the default), also on what it owns inside.",
+      "name": "share_folder"
+    },
+    {
+      "description": "Share a resource with users and groups, or revoke their access; the MCP user must own it. Those who gain access get the secret, encrypted for them.",
+      "name": "share_resource"
+    },
+    {
+      "description": "Show one field of the secret of a resource to the person, in the client: the agent never sees it. For when the person needs the password itself.",
+      "name": "show_secret"
+    },
+    {
+      "description": "Who would get access to a resource if it were shared so, group members included; shares nothing.",
+      "name": "simulate_share"
+    },
+    {
+      "description": "Change the fields given of a resource; a new secret is encrypted for everyone with access.",
+      "name": "update_resource"
+    },
+    {
+      "description": "The Passbolt user this server acts as, and what its rules allow.",
+      "name": "whoami"
+    }
+  ],
+  "user_config": {
+    "config": {
+      "description": "passbolt-mcp.toml: the Passbolt server, the MCP user and the rules. See the quick start.",
+      "required": true,
+      "title": "Configuration",
+      "type": "file"
+    }
+  },
+  "version": "0.1.0"
+}
