@@ -3046,9 +3046,9 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "switch-case-passbolt-sdk"
-version = "0.1.2"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd353ed0aa3df2c9e71a6804a74b45183f2d1acbc0b691d59f316ed7add42452"
+checksum = "a479663e2cfe27ada0013ffb9a73f1e06432021c5aadd38140f7cbd6bbd4e03a"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -3065,6 +3065,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "totp-rs",
+ "unicode-segmentation",
  "url",
  "uuid",
  "zeroize",

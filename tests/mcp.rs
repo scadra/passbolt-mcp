@@ -203,7 +203,12 @@ async fn secrets_stay_out_of_the_logs() {
     });
     let client = ().serve(transport).await.unwrap();
 
-    let generated = call(&client, "generate_password", json!({ "length": 24 })).await;
+    let generated = call(
+        &client,
+        "generate_password",
+        json!({ "kind": "password", "length": 24 }),
+    )
+    .await;
     let password = generated["password"].as_str().unwrap().to_string();
     assert_eq!(password.len(), 24);
     let root = format!("mcp-e2e-logs-{}", std::process::id());
@@ -760,7 +765,12 @@ async fn secret_tools() {
     assert_eq!(pwned["pwned"], true);
     assert!(pwned["breaches"].as_u64().unwrap() > 1000);
 
-    let generated = call(&client, "generate_password", json!({ "length": 32 })).await["password"]
+    let generated = call(
+        &client,
+        "generate_password",
+        json!({ "kind": "password", "length": 32 }),
+    )
+    .await["password"]
         .as_str()
         .unwrap()
         .to_string();
@@ -863,6 +873,78 @@ async fn totp() {
 
 #[tokio::test]
 #[ignore = "needs a Passbolt server"]
+async fn policy_generator() {
+    let session = Session::open(&Config::load(Path::new(&config_path())).unwrap())
+        .await
+        .unwrap();
+    let policies = session
+        .client()
+        .await
+        .get_password_policies()
+        .await
+        .unwrap();
+    session.close().await;
+    let config = ConfigWith::new("secrets = true");
+    let client = client_with(&config).await;
+
+    let default = call(&client, "generate_password", json!({})).await;
+    assert_eq!(default["below_policy"], false);
+    let password = default["password"].as_str().unwrap();
+    match default["kind"].as_str().unwrap() {
+        "password" => assert_eq!(
+            password.chars().count(),
+            policies.password_generator_settings.length as usize
+        ),
+        "passphrase" => assert_eq!(
+            password
+                .split(&policies.passphrase_generator_settings.word_separator)
+                .count(),
+            policies.passphrase_generator_settings.words as usize
+        ),
+        kind => panic!("{kind}"),
+    }
+    assert!(default["entropy_bits"].as_f64().unwrap() > 60.0);
+
+    let short = call(
+        &client,
+        "generate_password",
+        json!({ "kind": "password", "length": 8, "symbols": false }),
+    )
+    .await;
+    assert_eq!(short["below_policy"], true);
+    assert_eq!(short["strength"], "Very weak");
+    assert!(short["password"]
+        .as_str()
+        .unwrap()
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric()));
+    let words = call(
+        &client,
+        "generate_password",
+        json!({ "kind": "passphrase", "words": 12 }),
+    )
+    .await;
+    assert_eq!(words["kind"], "passphrase");
+    assert!(words["entropy_bits"].as_f64().unwrap() > 128.0);
+    let pin = call(
+        &client,
+        "generate_password",
+        json!({ "kind": "pin", "length": 8 }),
+    )
+    .await;
+    assert_eq!(pin["password"].as_str().unwrap().len(), 8);
+    let refused = refused(
+        &client,
+        "generate_password",
+        json!({ "kind": "pin", "length": 20 }),
+    )
+    .await;
+    assert!(refused["message"].as_str().unwrap().contains("4 to 12"));
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a Passbolt server"]
 async fn masked_secrets() {
     let root = format!("mcp-e2e-masked-{}", std::process::id());
     let password = format!("Masked-e2e-{}-never-seen", std::process::id());
@@ -918,7 +1000,12 @@ async fn masked_secrets() {
         password.len().to_string()
     );
 
-    let generated = call(&client, "generate_password", json!({ "length": 31 })).await;
+    let generated = call(
+        &client,
+        "generate_password",
+        json!({ "kind": "password", "length": 31 }),
+    )
+    .await;
     assert!(generated["password"].is_null());
     call(
         &client,

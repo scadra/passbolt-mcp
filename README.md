@@ -71,7 +71,7 @@ agent cannot answer for them. Every call is written to an audit file, never a se
   permissions.
 - With the rules allowing it:
   - **secrets**: read a password or a note, get a TOTP code (never its seed), check a password
-    against Have I Been Pwned, generate one; or, with `mask_secrets`, **use** a password without
+    against Have I Been Pwned, generate one following the password policy of the organization; or, with `mask_secrets`, **use** a password without
     seeing it: it gets a handle, and `passbolt-mcp` runs a declared command with the password;
   - **writing**: create, update, move and delete resources and folders, comment, mark favorites,
     each with a `dry_run`;

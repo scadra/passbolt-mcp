@@ -70,7 +70,7 @@ impl Session {
         };
         let me = session.me().await?;
         if is_admin(&me) {
-            session.client().await.logout().await;
+            session.close().await;
             bail!(
                 "{} is an administrator: the MCP user must have the role user",
                 display_name(&me)
@@ -89,7 +89,9 @@ impl Session {
     }
 
     pub async fn close(&self) {
-        self.client().await.logout().await;
+        if let Err(error) = self.client().await.logout().await {
+            tracing::debug!("logout: {error}");
+        }
     }
 
     pub fn keep_alive(self: &Arc<Self>) -> tokio::task::JoinHandle<()> {

@@ -10,11 +10,15 @@
 // @link          https://www.passbolt.com Passbolt(tm)
 // @since         0.1.0
 
-use rand::rngs::OsRng;
-use rand::seq::SliceRandom;
+use passbolt_sdk::generator::{
+    generate_passphrase, generate_password, generate_pin_code, generate_secret, secret_entropy,
+    GeneratorType, PasswordPolicies, Strength, PIN_CODE_MAX_LENGTH, PIN_CODE_MIN_LENGTH,
+};
+use passbolt_sdk::PassboltError;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use zeroize::Zeroizing;
 
 use crate::error::ToolError;
 
@@ -64,33 +68,35 @@ pub struct Pwned {
     pub breaches: u64,
 }
 
-#[allow(clippy::struct_excessive_bools)]
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Kind {
+    Password,
+    Passphrase,
+    Pin,
+}
+
+#[derive(Debug, Default, Deserialize, JsonSchema)]
 #[schemars(description = "`generate_password`.")]
 #[serde(default)]
 pub struct GeneratePassword {
-    #[schemars(description = "20 by default, from 8 to 128.")]
-    pub length: usize,
-    #[schemars(description = "Lowercase letters; on by default.")]
-    pub lowercase: bool,
-    #[schemars(description = "Uppercase letters; on by default.")]
-    pub uppercase: bool,
-    #[schemars(description = "Digits; on by default.")]
-    pub digits: bool,
-    #[schemars(description = "Symbols; on by default.")]
-    pub symbols: bool,
-}
-
-impl Default for GeneratePassword {
-    fn default() -> Self {
-        Self {
-            length: 20,
-            lowercase: true,
-            uppercase: true,
-            digits: true,
-            symbols: true,
-        }
-    }
+    #[schemars(
+        description = "`password`, `passphrase` or `pin`; the generator of the password policy of the \
+        organization by default."
+    )]
+    pub kind: Option<Kind>,
+    #[schemars(
+        description = "Characters of a password, digits of a PIN code (4 to 12, 6 by default); the policy's by \
+        default."
+    )]
+    pub length: Option<u32>,
+    #[schemars(description = "Words of a passphrase; the policy's by default.")]
+    pub words: Option<u32>,
+    #[schemars(
+        description = "`false` for letters and digits only, for a service that refuses symbols; the policy's \
+        character sets by default."
+    )]
+    pub symbols: Option<bool>,
 }
 
 #[derive(Serialize, JsonSchema)]
@@ -106,39 +112,86 @@ pub struct GeneratedPassword {
     )]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub handle: Option<String>,
+    pub kind: Kind,
+    #[schemars(
+        description = "As Passbolt shows it: `Very weak`, `Weak`, `Fair`, `Strong`, `Very strong`."
+    )]
+    pub strength: String,
+    pub entropy_bits: f64,
+    #[schemars(
+        description = "Weaker than what the password policy of the organization generates: say so to the person."
+    )]
+    pub below_policy: bool,
 }
 
-const LOWERCASE: &[u8] = b"abcdefghijklmnopqrstuvwxyz";
-const UPPERCASE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-const DIGITS: &[u8] = b"0123456789";
-const SYMBOLS: &[u8] = b"!#$%&()*+,-./:;<=>?@[]^_{|}~";
+pub struct Generated {
+    pub secret: Zeroizing<String>,
+    pub kind: Kind,
+    pub strength: Strength,
+    pub entropy_bits: f64,
+    pub below_policy: bool,
+}
 
-pub fn generate(args: &GeneratePassword) -> Result<String, ToolError> {
-    if !(8..=128).contains(&args.length) {
-        return Err(ToolError::invalid_argument("length: from 8 to 128".into()));
-    }
-    let classes: Vec<&[u8]> = [
-        (args.lowercase, LOWERCASE),
-        (args.uppercase, UPPERCASE),
-        (args.digits, DIGITS),
-        (args.symbols, SYMBOLS),
-    ]
-    .into_iter()
-    .filter_map(|(wanted, class)| wanted.then_some(class))
-    .collect();
-    if classes.is_empty() {
-        return Err(ToolError::invalid_argument(
-            "choose at least one of lowercase, uppercase, digits, symbols".into(),
-        ));
-    }
-    let all: Vec<u8> = classes.concat();
-    let mut password: Vec<u8> = classes
-        .iter()
-        .map(|class| *class.choose(&mut OsRng).expect("a class"))
-        .collect();
-    password.extend((password.len()..args.length).map(|_| *all.choose(&mut OsRng).expect("chars")));
-    password.shuffle(&mut OsRng);
-    Ok(String::from_utf8(password).expect("ASCII"))
+const PIN_LENGTH: u32 = 6;
+
+fn invalid(error: &PassboltError) -> ToolError {
+    ToolError::invalid_argument(error.to_string())
+}
+
+pub fn generate(
+    args: &GeneratePassword,
+    policies: &PasswordPolicies,
+) -> Result<Generated, ToolError> {
+    let kind = args.kind.unwrap_or(match policies.default_generator {
+        GeneratorType::Password => Kind::Password,
+        GeneratorType::Passphrase => Kind::Passphrase,
+    });
+    let secret = Zeroizing::new(match kind {
+        Kind::Password => {
+            let mut settings = policies.password_generator_settings.clone();
+            if let Some(length) = args.length {
+                settings.length = length;
+            }
+            if args.symbols == Some(false) {
+                settings.mask_char1 = false;
+                settings.mask_char2 = false;
+                settings.mask_char3 = false;
+                settings.mask_char4 = false;
+                settings.mask_char5 = false;
+                settings.mask_parenthesis = false;
+                settings.mask_emoji = false;
+            }
+            generate_password(&settings).map_err(|error| invalid(&error))?
+        }
+        Kind::Passphrase => {
+            let mut settings = policies.passphrase_generator_settings.clone();
+            if let Some(words) = args.words {
+                settings.words = words;
+            }
+            generate_passphrase(&settings).map_err(|error| invalid(&error))?
+        }
+        Kind::Pin => {
+            let length = args.length.unwrap_or(PIN_LENGTH);
+            if !(PIN_CODE_MIN_LENGTH..=PIN_CODE_MAX_LENGTH).contains(&length) {
+                return Err(ToolError::invalid_argument(format!(
+                    "a PIN code has from {PIN_CODE_MIN_LENGTH} to {PIN_CODE_MAX_LENGTH} digits, not {length}"
+                )));
+            }
+            generate_pin_code(length)
+        }
+    });
+    let entropy_bits = secret_entropy(&secret);
+    let strength = Strength::of(entropy_bits);
+    let policy = generate_secret(policies).map_or(Strength::NotAvailable, |reference| {
+        Strength::of(secret_entropy(&Zeroizing::new(reference)))
+    });
+    Ok(Generated {
+        secret,
+        kind,
+        strength,
+        entropy_bits: (entropy_bits * 10.0).round() / 10.0,
+        below_policy: strength < policy,
+    })
 }
 
 pub fn field(secret: &Map<String, Value>, field: &str) -> Result<String, ToolError> {
@@ -178,46 +231,91 @@ mod tests {
         .unwrap()
     }
 
-    #[test]
-    fn generated() {
-        let password = generate(&GeneratePassword::default()).unwrap();
-        assert_eq!(password.len(), 20);
-        for class in [LOWERCASE, UPPERCASE, DIGITS, SYMBOLS] {
-            assert!(password.bytes().any(|byte| class.contains(&byte)));
+    fn args(kind: Kind) -> GeneratePassword {
+        GeneratePassword {
+            kind: Some(kind),
+            ..GeneratePassword::default()
         }
-        assert_ne!(password, generate(&GeneratePassword::default()).unwrap());
     }
 
     #[test]
-    fn digits_only() {
-        let args = GeneratePassword {
-            length: 8,
-            lowercase: false,
-            uppercase: false,
-            symbols: false,
-            ..GeneratePassword::default()
+    fn the_policy_by_default() {
+        let policies = PasswordPolicies::default();
+        let generated = generate(&GeneratePassword::default(), &policies).unwrap();
+        assert_eq!(generated.kind, Kind::Password);
+        assert_eq!(generated.secret.chars().count(), 18);
+        assert!(generated.strength >= Strength::Strong);
+        assert!(!generated.below_policy);
+        let other = generate(&GeneratePassword::default(), &policies).unwrap();
+        assert_ne!(generated.secret, other.secret);
+        let passphrases = PasswordPolicies {
+            default_generator: GeneratorType::Passphrase,
+            ..PasswordPolicies::default()
         };
-        assert!(generate(&args)
-            .unwrap()
-            .bytes()
-            .all(|byte| byte.is_ascii_digit()));
+        let generated = generate(&GeneratePassword::default(), &passphrases).unwrap();
+        assert_eq!(generated.kind, Kind::Passphrase);
+        assert_eq!(generated.secret.split(' ').count(), 9);
+    }
+
+    #[test]
+    fn shorter_is_below_the_policy() {
+        let short = GeneratePassword {
+            length: Some(8),
+            ..args(Kind::Password)
+        };
+        let generated = generate(&short, &PasswordPolicies::default()).unwrap();
+        assert_eq!(generated.secret.len(), 8);
+        assert!(generated.below_policy);
+        assert_eq!(generated.strength, Strength::VeryWeak);
+    }
+
+    #[test]
+    fn without_symbols() {
+        let plain = GeneratePassword {
+            length: Some(40),
+            symbols: Some(false),
+            ..args(Kind::Password)
+        };
+        let generated = generate(&plain, &PasswordPolicies::default()).unwrap();
+        assert!(generated.secret.chars().all(|c| c.is_ascii_alphanumeric()));
+    }
+
+    #[test]
+    fn passphrase_and_pin() {
+        let words = GeneratePassword {
+            words: Some(5),
+            ..args(Kind::Passphrase)
+        };
+        let generated = generate(&words, &PasswordPolicies::default()).unwrap();
+        assert_eq!(generated.secret.split(' ').count(), 5);
+        let pin = generate(&args(Kind::Pin), &PasswordPolicies::default()).unwrap();
+        assert_eq!(pin.secret.len(), 6);
+        assert!(pin.secret.bytes().all(|byte| byte.is_ascii_digit()));
+        assert!(pin.below_policy);
     }
 
     #[test]
     fn bad_arguments() {
-        let short = GeneratePassword {
-            length: 4,
-            ..GeneratePassword::default()
+        let policies = PasswordPolicies::default();
+        let long = GeneratePassword {
+            length: Some(500),
+            ..args(Kind::Password)
         };
-        assert!(generate(&short).is_err());
-        let nothing = GeneratePassword {
-            lowercase: false,
-            uppercase: false,
-            digits: false,
-            symbols: false,
-            ..GeneratePassword::default()
+        assert!(generate(&long, &policies).is_err());
+        let pin = GeneratePassword {
+            length: Some(3),
+            ..args(Kind::Pin)
         };
-        assert!(generate(&nothing).is_err());
+        assert!(generate(&pin, &policies)
+            .err()
+            .unwrap()
+            .message
+            .contains("4 to 12"));
+        let words = GeneratePassword {
+            words: Some(1),
+            ..args(Kind::Passphrase)
+        };
+        assert!(generate(&words, &policies).is_err());
     }
 
     #[test]
