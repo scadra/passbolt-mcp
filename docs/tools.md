@@ -49,9 +49,13 @@ nowhere else: not to the logs, at any level, nor to the errors.
 | `check_password_pwned` | `id` | whether the password is in a known breach, and how many times: only the first five characters of its SHA-1 go to [Have I Been Pwned](https://haveibeenpwned.com/Passwords) |
 | `generate_password` | `kind` (`password`, `passphrase`, `pin`), `length`, `words`, `symbols` | a password, passphrase or PIN code following the [password policy](https://www.passbolt.com/docs/admin/password-configuration/password-policies/) of the organization, as the browser extension generates them; the arguments change what the person asked for, such as a service that refuses symbols. Its strength comes with it (`Very weak` to `Very strong`, as Passbolt shows it), and `below_policy` when it is weaker than the policy. Saved nowhere. |
 | `run_with_secret` | `command`, `secret`, `args` | runs a command of [`[commands]`](rules.md#commands-use-a-secret-without-seeing-it) with a password in its environment; what it prints comes back with the password taken out. Offered when there is a command. |
+| `call_api` | `api`, `method`, `path`, `query`, `body`, `secret` | sends a request to an API of [`[apis]`](secrets-without-seeing.md#call-an-api-with-a-secret), the secret in a header; the answer comes back with the secret taken out, and redirects are not followed. Offered when there is an API. |
+| `fill_template` | `template` | writes the target of a template of [`[templates]`](secrets-without-seeing.md#fill-a-template), each `{{ passbolt:… }}` of the source replaced with its secret; returns the number of secrets, never the content. Offered when there is a template. |
+| `show_secret` | `id`, `field` | shows one field of the secret to the person, in the client, through elicitation; the agent gets `shown`, never the value |
 
 With `access.mask_secrets = true`, `get_secret` and `generate_password` return a handle in place of
-the value, which `create_resource`, `update_resource` and `run_with_secret` take: the agent uses
+the value, which `create_resource`, `update_resource`, `run_with_secret`, `call_api` and
+`fill_template` take: the agent uses
 the secret without seeing it.
 
 ## Writing

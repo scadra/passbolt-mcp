@@ -16,7 +16,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
+use crate::apis::ApiConfig;
 use crate::commands::CommandConfig;
+use crate::templates::TemplateConfig;
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
@@ -28,6 +30,8 @@ pub struct Config {
     pub limits: LimitsConfig,
     pub confirm: ConfirmConfig,
     pub commands: BTreeMap<String, CommandConfig>,
+    pub apis: BTreeMap<String, ApiConfig>,
+    pub templates: BTreeMap<String, TemplateConfig>,
     #[serde(skip)]
     pub dir: PathBuf,
 }
@@ -139,6 +143,8 @@ impl Config {
             .with_context(|| format!("cannot read {}", path.display()))?;
         let config = Self::parse(&text).with_context(|| format!("invalid {}", path.display()))?;
         crate::commands::check_all(&config.commands)
+            .and_then(|()| crate::apis::check_all(&config.apis))
+            .and_then(|()| crate::templates::check_all(&config.templates))
             .with_context(|| format!("invalid {}", path.display()))?;
         Ok(config.relative_to(path.parent().unwrap_or_else(|| Path::new(""))))
     }

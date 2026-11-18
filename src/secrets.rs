@@ -50,6 +50,15 @@ pub struct SecretField {
 }
 
 #[derive(Serialize, JsonSchema)]
+#[schemars(description = "`show_secret`: what the agent learns, never the secret.")]
+pub struct ShownSecret {
+    pub id: String,
+    pub field: String,
+    #[schemars(description = "The client showed the secret to the person.")]
+    pub shown: bool,
+}
+
+#[derive(Serialize, JsonSchema)]
 #[schemars(description = "`get_totp_code`: the current code, never the seed.")]
 pub struct TotpCode {
     pub id: String,

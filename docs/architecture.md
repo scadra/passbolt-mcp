@@ -63,7 +63,7 @@ MCP defines the features a server can offer. passbolt-mcp uses four of them.
 
 | MCP feature | What passbolt-mcp offers | Controlled by |
 |---|---|---|
-| **Tools** | Up to 28 functions the model can call: find and read resources, read or use secrets, write, share. See [Tools](tools.md). | The rules: a tool the rules refuse is not even listed. |
+| **Tools** | Up to 31 functions the model can call: find and read resources, read or use secrets, write, share. See [Tools](tools.md). | The rules: a tool the rules refuse is not even listed. |
 | **Resources** | `passbolt://resource/{id}` and `passbolt://folder/{id}`, the metadata of a resource or a folder, never a secret. | `scope.folders`. |
 | **Prompts** | `audit_password_hygiene` and `rotate_password`, ready-made tasks a person can start from the client. | The rules: `rotate_password` needs `write` and `secrets`. |
 | **Elicitation** | The questions of [`[confirm]`](rules.md#confirm-what-the-person-says-yes-to): passbolt-mcp asks the person, through the client, before a sensitive call runs. | `[confirm]`. |

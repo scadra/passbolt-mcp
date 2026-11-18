@@ -91,6 +91,21 @@ The Passbolt user this server acts as, and what its rules allow.
 
 With `access.secrets = true`.
 
+### `call_api`
+
+Call an API of the configuration, passbolt-mcp adding the secret to the request: the agent never sees it, and the answer comes back with the secret taken out. `whoami` lists the APIs.
+
+*Destructive.*
+
+| Argument | Type | Description |
+|---|---|---|
+| `api` (required) | string | The name of an API of the configuration, as `whoami` lists it. |
+| `body` |  | The body of the request, sent as JSON. |
+| `method` | string | `GET` by default; one of the methods the API allows. |
+| `path` (required) | string | The path under the base URL of the API, such as `repos/acme/app/issues`. |
+| `query` | object | Query parameters, by name. |
+| `secret` | string | A handle from `get_secret` or `generate_password`, or the id of a resource, whose password goes in the request; for the APIs that take one. |
+
 ### `check_password_pwned`
 
 Whether the password of a resource is in a known breach, by k-anonymity: only the first five characters of its SHA-1 leave, to Have I Been Pwned.
@@ -100,6 +115,16 @@ Whether the password of a resource is in a known breach, by k-anonymity: only th
 | Argument | Type | Description |
 |---|---|---|
 | `id` (required) | string | The id of the resource. |
+
+### `fill_template`
+
+Fill a template of the configuration: passbolt-mcp reads the file the agent wrote, puts each secret where `{{ passbolt:<resource id> }}`, `{{ passbolt:<resource id>#<field> }}` or a handle stands, and writes the target, which the agent cannot read. `whoami` lists the templates.
+
+*Destructive.*
+
+| Argument | Type | Description |
+|---|---|---|
+| `template` (required) | string | The name of a template of the configuration, as `whoami` lists it. |
 
 ### `generate_password`
 
@@ -146,6 +171,17 @@ Run a command of the configuration with a password in its environment, which the
 | `args` | object | The value of each placeholder of the command, by name. |
 | `command` (required) | string | The name of a command of the configuration, as `whoami` lists it. |
 | `secret` | string | A handle from `get_secret` or `generate_password`, or the id of a resource, whose password the command gets; for the commands that take one. |
+
+### `show_secret`
+
+Show one field of the secret of a resource to the person, in the client: the agent never sees it. For when the person needs the password itself.
+
+*Read only.*
+
+| Argument | Type | Description |
+|---|---|---|
+| `field` | string | The field of the secret: `password` by default, or `description`, the note of a v5 resource. |
+| `id` (required) | string | The id of the resource. |
 
 ## Writing
 

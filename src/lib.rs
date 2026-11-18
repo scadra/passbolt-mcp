@@ -10,6 +10,7 @@
 // @link          https://www.passbolt.com Passbolt(tm)
 // @since         0.1.0
 
+pub mod apis;
 pub mod audit;
 pub mod commands;
 pub mod config;
@@ -27,6 +28,7 @@ pub mod server;
 pub mod server_key;
 pub mod session;
 pub mod share;
+pub mod templates;
 pub mod untrusted;
 pub mod vault;
 pub mod write;
